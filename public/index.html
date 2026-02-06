@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demo Analyzer</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242838;
+      --border: #2e3348;
+      --text: #e1e4ed;
+      --text-dim: #8b90a5;
+      --accent: #6c72ff;
+      --accent-hover: #8186ff;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --orange: #fb923c;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 24px;
+    }
+
+    header h1 {
+      font-size: 22px;
+      font-weight: 600;
+    }
+
+    header h1 span { color: var(--accent); }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--surface);
+      padding: 4px;
+      border-radius: 10px;
+      margin-bottom: 24px;
+    }
+
+    .tab {
+      padding: 10px 20px;
+      border: none;
+      background: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .tab:hover { color: var(--text); }
+    .tab.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* Upload area */
+    .upload-area {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 48px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 20px;
+    }
+
+    .upload-area:hover, .upload-area.dragover {
+      border-color: var(--accent);
+      background: rgba(108, 114, 255, 0.05);
+    }
+
+    .upload-area h3 {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    .upload-area p { color: var(--text-dim); font-size: 14px; }
+
+    .upload-area input[type="file"] { display: none; }
+
+    /* Text import area */
+    .import-section {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 24px;
+    }
+
+    .import-section h3 {
+      margin-bottom: 16px;
+      font-size: 16px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    input[type="text"], select, textarea {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    textarea { min-height: 200px; resize: vertical; }
+
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: var(--accent-hover); }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-danger {
+      background: var(--red);
+      color: #fff;
+    }
+
+    .btn-sm {
+      padding: 6px 14px;
+      font-size: 13px;
+    }
+
+    /* Transcript list */
+    .transcript-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .transcript-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: 1px solid var(--border);
+    }
+
+    .transcript-card:hover {
+      border-color: var(--accent);
+    }
+
+    .transcript-card .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 8px;
+    }
+
+    .transcript-card h3 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: capitalize;
+    }
+
+    .badge-fathom { background: rgba(108, 114, 255, 0.15); color: var(--accent); }
+    .badge-granola { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+    .badge-unknown { background: rgba(139, 144, 165, 0.15); color: var(--text-dim); }
+
+    .card-meta {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+
+    .card-preview {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-top: 8px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-dim);
+    }
+
+    .empty-state h3 { margin-bottom: 8px; color: var(--text); }
+
+    /* Detail view */
+    .detail-view {
+      display: none;
+    }
+
+    .detail-view.active { display: block; }
+
+    .back-btn {
+      background: none;
+      border: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 14px;
+      margin-bottom: 16px;
+      padding: 0;
+    }
+
+    .detail-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+    }
+
+    .detail-header h2 { font-size: 22px; }
+
+    .detail-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .analysis-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .analysis-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .analysis-card.full-width {
+      grid-column: 1 / -1;
+    }
+
+    .analysis-card h4 {
+      font-size: 13px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+    }
+
+    .score-display {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .score-circle {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .score-hot { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+    .score-warm { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
+    .score-cold { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+
+    .tag-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag {
+      background: var(--surface2);
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .quote-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .quote {
+      padding: 10px 14px;
+      background: var(--surface2);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      font-size: 13px;
+      font-style: italic;
+    }
+
+    .ideas-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .idea-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .idea-card .idea-type {
+      font-size: 12px;
+      color: var(--accent);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .idea-card h4 {
+      margin: 6px 0 8px;
+      font-size: 15px;
+    }
+
+    .idea-card p {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+
+    .transcript-text {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid var(--border);
+      font-size: 13px;
+      white-space: pre-wrap;
+      max-height: 400px;
+      overflow-y: auto;
+      line-height: 1.8;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 32px 0 16px;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      z-index: 1000;
+      animation: slideIn 0.3s ease;
+    }
+
+    .toast-success { background: var(--green); color: #000; }
+    .toast-error { background: var(--red); color: #fff; }
+
+    @keyframes slideIn {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @media (max-width: 768px) {
+      .analysis-grid { grid-template-columns: 1fr; }
+      .detail-header { flex-direction: column; gap: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1><span>Demo</span> Analyzer</h1>
+    </header>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="transcripts">Transcripts</button>
+      <button class="tab" data-tab="upload">Upload / Import</button>
+      <button class="tab" data-tab="ideas">Content Ideas</button>
+    </div>
+
+    <!-- Upload Panel -->
+    <div class="panel" id="panel-upload">
+      <div class="upload-area" id="dropzone">
+        <h3>Drop transcript file here</h3>
+        <p>Supports Fathom (.txt, .vtt) and Granola (.md) exports &mdash; or any plain text transcript</p>
+        <input type="file" id="file-input" accept=".txt,.md,.vtt,.srt,.json">
+      </div>
+
+      <div class="import-section">
+        <h3>Or paste transcript text</h3>
+        <div class="form-group">
+          <label for="import-title">Title</label>
+          <input type="text" id="import-title" placeholder="e.g. Demo call with Acme Corp">
+        </div>
+        <div class="form-group">
+          <label for="import-source">Source</label>
+          <select id="import-source">
+            <option value="">Auto-detect</option>
+            <option value="fathom">Fathom</option>
+            <option value="granola">Granola</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="import-text">Transcript text</label>
+          <textarea id="import-text" placeholder="Paste your transcript here..."></textarea>
+        </div>
+        <button class="btn btn-primary" id="import-btn">Import Transcript</button>
+      </div>
+    </div>
+
+    <!-- Transcripts Panel -->
+    <div class="panel active" id="panel-transcripts">
+      <div id="transcript-list-view">
+        <div id="transcript-list" class="transcript-list"></div>
+      </div>
+
+      <div class="detail-view" id="transcript-detail">
+        <button class="back-btn" id="back-btn">&larr; Back to list</button>
+        <div class="detail-header">
+          <div>
+            <h2 id="detail-title"></h2>
+            <div class="card-meta" id="detail-meta"></div>
+          </div>
+          <div class="detail-actions">
+            <button class="btn btn-primary" id="analyze-btn">Analyze</button>
+            <button class="btn btn-danger btn-sm" id="delete-btn">Delete</button>
+          </div>
+        </div>
+
+        <div id="analysis-section" style="display:none;">
+          <h3 class="section-title">Analysis</h3>
+          <div class="analysis-grid" id="analysis-grid"></div>
+
+          <h3 class="section-title">Content Ideas</h3>
+          <div class="ideas-list" id="ideas-list"></div>
+        </div>
+
+        <h3 class="section-title">Transcript</h3>
+        <div class="transcript-text" id="detail-text"></div>
+      </div>
+    </div>
+
+    <!-- Content Ideas Panel -->
+    <div class="panel" id="panel-ideas">
+      <div id="all-ideas-list" class="ideas-list"></div>
+    </div>
+  </div>
+
+  <script>
+    // ── State ─────────────────────────────────────
+    let currentTranscriptId = null;
+
+    // ── Tab switching ─────────────────────────────
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+
+        if (tab.dataset.tab === 'transcripts') loadTranscripts();
+        if (tab.dataset.tab === 'ideas') loadAllIdeas();
+      });
+    });
+
+    // ── Toast ─────────────────────────────────────
+    function toast(msg, type = 'success') {
+      const el = document.createElement('div');
+      el.className = 'toast toast-' + type;
+      el.textContent = msg;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 3000);
+    }
+
+    // ── File Upload ───────────────────────────────
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('file-input');
+
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) uploadFile(fileInput.files[0]);
+    });
+
+    async function uploadFile(file) {
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        const res = await fetch('/api/transcripts/upload', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        toast('Transcript uploaded: ' + data.title);
+        switchToTranscripts();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    }
+
+    // ── Text Import ───────────────────────────────
+    document.getElementById('import-btn').addEventListener('click', async () => {
+      const title = document.getElementById('import-title').value;
+      const source = document.getElementById('import-source').value;
+      const text = document.getElementById('import-text').value;
+
+      if (!text.trim()) { toast('Please paste transcript text', 'error'); return; }
+
+      try {
+        const body = { text, title: title || undefined, source: source || undefined };
+        const res = await fetch('/api/transcripts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        toast('Transcript imported: ' + data.title);
+        document.getElementById('import-title').value = '';
+        document.getElementById('import-text').value = '';
+        switchToTranscripts();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+
+    function switchToTranscripts() {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      document.querySelector('[data-tab="transcripts"]').classList.add('active');
+      document.getElementById('panel-transcripts').classList.add('active');
+      loadTranscripts();
+    }
+
+    // ── Transcript List ───────────────────────────
+    async function loadTranscripts() {
+      const list = document.getElementById('transcript-list');
+      try {
+        const res = await fetch('/api/transcripts');
+        const transcripts = await res.json();
+
+        if (transcripts.length === 0) {
+          list.innerHTML = '<div class="empty-state"><h3>No transcripts yet</h3><p>Upload a file or paste text to get started</p></div>';
+          return;
+        }
+
+        list.innerHTML = transcripts.map(t => `
+          <div class="transcript-card" onclick="viewTranscript('${t.id}')">
+            <div class="card-header">
+              <h3>${esc(t.title)}</h3>
+              <span class="badge badge-${t.source}">${t.source}</span>
+            </div>
+            <div class="card-meta">
+              ${t.date ? t.date + ' &middot; ' : ''}
+              ${(t.participants || []).join(', ') || 'No participants detected'}
+              &middot; ${new Date(t.created_at).toLocaleDateString()}
+            </div>
+            <div class="card-preview">${esc(t.text_preview)}</div>
+          </div>
+        `).join('');
+      } catch (err) {
+        list.innerHTML = '<div class="empty-state"><h3>Error loading transcripts</h3><p>' + esc(err.message) + '</p></div>';
+      }
+
+      // Make sure we're showing list view
+      document.getElementById('transcript-list-view').style.display = '';
+      document.getElementById('transcript-detail').classList.remove('active');
+    }
+
+    // ── Transcript Detail ─────────────────────────
+    async function viewTranscript(id) {
+      currentTranscriptId = id;
+      try {
+        const res = await fetch('/api/transcripts/' + id);
+        const t = await res.json();
+
+        document.getElementById('detail-title').textContent = t.title;
+        document.getElementById('detail-meta').innerHTML =
+          `<span class="badge badge-${t.source}">${t.source}</span> &middot; ` +
+          (t.date || 'No date') + ' &middot; ' +
+          ((t.participants || []).join(', ') || 'No participants');
+        document.getElementById('detail-text').textContent = t.parsed_text || t.raw_text;
+
+        // Check for existing analysis
+        document.getElementById('analysis-section').style.display = 'none';
+        try {
+          const aRes = await fetch('/api/transcripts/' + id + '/analysis');
+          if (aRes.ok) {
+            const aData = await aRes.json();
+            renderAnalysis(aData);
+          }
+        } catch {}
+
+        document.getElementById('transcript-list-view').style.display = 'none';
+        document.getElementById('transcript-detail').classList.add('active');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    }
+
+    document.getElementById('back-btn').addEventListener('click', () => {
+      document.getElementById('transcript-detail').classList.remove('active');
+      document.getElementById('transcript-list-view').style.display = '';
+      currentTranscriptId = null;
+    });
+
+    // ── Analyze ───────────────────────────────────
+    document.getElementById('analyze-btn').addEventListener('click', async () => {
+      if (!currentTranscriptId) return;
+      const btn = document.getElementById('analyze-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Analyzing...';
+
+      try {
+        const res = await fetch('/api/transcripts/' + currentTranscriptId + '/analyze', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        renderAnalysis(data);
+        toast('Analysis complete');
+      } catch (err) {
+        toast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Analyze';
+      }
+    });
+
+    function renderAnalysis(data) {
+      const section = document.getElementById('analysis-section');
+      section.style.display = '';
+      const a = data.analysis;
+      const ideas = data.content_ideas || [];
+
+      const scoreClass = a.lead_score >= 7 ? 'score-hot' : a.lead_score >= 4 ? 'score-warm' : 'score-cold';
+
+      const grid = document.getElementById('analysis-grid');
+      grid.innerHTML = `
+        <div class="analysis-card">
+          <h4>Lead Score</h4>
+          <div class="score-display">
+            <div class="score-circle ${scoreClass}">${a.lead_score || '?'}</div>
+            <div>
+              <div style="font-weight:600">${a.lead_qualification || 'N/A'}</div>
+              <div style="font-size:13px;color:var(--text-dim)">${a.sentiment || ''}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="analysis-card">
+          <h4>Summary</h4>
+          <p style="font-size:14px">${esc(a.summary || 'No summary available')}</p>
+        </div>
+
+        <div class="analysis-card">
+          <h4>Pain Points</h4>
+          <div class="tag-list">
+            ${(a.pain_points || []).map(p => `<span class="tag">${esc(p)}</span>`).join('') || '<span class="tag">None identified</span>'}
+          </div>
+        </div>
+
+        <div class="analysis-card">
+          <h4>Objections</h4>
+          <div class="tag-list">
+            ${(a.objections || []).map(o => `<span class="tag">${esc(o)}</span>`).join('') || '<span class="tag">None raised</span>'}
+          </div>
+        </div>
+
+        <div class="analysis-card">
+          <h4>Competitors Mentioned</h4>
+          <div class="tag-list">
+            ${(a.competitors_mentioned || []).map(c => `<span class="tag">${esc(c)}</span>`).join('') || '<span class="tag">None mentioned</span>'}
+          </div>
+        </div>
+
+        <div class="analysis-card">
+          <h4>Next Steps</h4>
+          <div class="tag-list">
+            ${(a.next_steps || []).map(n => `<span class="tag">${esc(n)}</span>`).join('') || '<span class="tag">None identified</span>'}
+          </div>
+        </div>
+
+        <div class="analysis-card full-width">
+          <h4>Key Quotes</h4>
+          <div class="quote-list">
+            ${(a.key_quotes || []).map(q => `<div class="quote">"${esc(q)}"</div>`).join('') || '<div class="quote">No quotes extracted</div>'}
+          </div>
+        </div>
+      `;
+
+      const ideasList = document.getElementById('ideas-list');
+      ideasList.innerHTML = ideas.map(i => `
+        <div class="idea-card">
+          <div class="idea-type">${esc(i.type)}</div>
+          <h4>${esc(i.title)}</h4>
+          <p>${esc(i.description)}</p>
+          ${i.target_audience ? `<p style="margin-top:6px"><strong>Audience:</strong> ${esc(i.target_audience)}</p>` : ''}
+        </div>
+      `).join('') || '<div class="empty-state">No content ideas generated</div>';
+    }
+
+    // ── Delete ────────────────────────────────────
+    document.getElementById('delete-btn').addEventListener('click', async () => {
+      if (!currentTranscriptId || !confirm('Delete this transcript and its analysis?')) return;
+      try {
+        await fetch('/api/transcripts/' + currentTranscriptId, { method: 'DELETE' });
+        toast('Transcript deleted');
+        document.getElementById('back-btn').click();
+        loadTranscripts();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+
+    // ── All Content Ideas ─────────────────────────
+    async function loadAllIdeas() {
+      const list = document.getElementById('all-ideas-list');
+      try {
+        const res = await fetch('/api/content-ideas');
+        const ideas = await res.json();
+
+        if (ideas.length === 0) {
+          list.innerHTML = '<div class="empty-state"><h3>No content ideas yet</h3><p>Analyze a transcript to generate content ideas</p></div>';
+          return;
+        }
+
+        list.innerHTML = ideas.map(i => `
+          <div class="idea-card">
+            <div class="idea-type">${esc(i.type)}</div>
+            <h4>${esc(i.title)}</h4>
+            <p>${esc(i.description)}</p>
+            ${i.target_audience ? `<p style="margin-top:6px"><strong>Audience:</strong> ${esc(i.target_audience)}</p>` : ''}
+          </div>
+        `).join('');
+      } catch (err) {
+        list.innerHTML = '<div class="empty-state"><h3>Error</h3><p>' + esc(err.message) + '</p></div>';
+      }
+    }
+
+    // ── Helpers ───────────────────────────────────
+    function esc(s) {
+      if (!s) return '';
+      const d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    // Initial load
+    loadTranscripts();
+  </script>
+</body>
+</html>
