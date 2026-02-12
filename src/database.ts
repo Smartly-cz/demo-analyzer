@@ -64,6 +64,25 @@ function initSchema(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Migrate: add new analysis columns (safe to run repeatedly — silently ignored if already exist)
+  const newCols = [
+    "feature_requests TEXT",
+    "decision_process TEXT",
+    "buying_triggers TEXT",
+    "current_tools TEXT",
+    "use_cases TEXT",
+    "company_signals TEXT",
+    "commitment_signals TEXT",
+    "prospect_questions TEXT",
+  ];
+  for (const col of newCols) {
+    try {
+      db.exec(`ALTER TABLE analyses ADD COLUMN ${col}`);
+    } catch {
+      // Column already exists — ignore
+    }
+  }
 }
 
 export interface TranscriptRow {
@@ -91,6 +110,14 @@ export interface AnalysisRow {
   sentiment: string | null;
   key_quotes: string | null;
   custom_fields: string | null;
+  feature_requests: string | null;
+  decision_process: string | null;
+  buying_triggers: string | null;
+  current_tools: string | null;
+  use_cases: string | null;
+  company_signals: string | null;
+  commitment_signals: string | null;
+  prospect_questions: string | null;
   created_at: string;
 }
 
@@ -143,13 +170,17 @@ export function insertAnalysis(a: Omit<AnalysisRow, "created_at">) {
   const db = getDb();
   const stmt = db.prepare(`
     INSERT INTO analyses (id, transcript_id, summary, lead_score, lead_qualification,
-      pain_points, objections, competitors_mentioned, next_steps, sentiment, key_quotes, custom_fields)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      pain_points, objections, competitors_mentioned, next_steps, sentiment, key_quotes, custom_fields,
+      feature_requests, decision_process, buying_triggers, current_tools, use_cases,
+      company_signals, commitment_signals, prospect_questions)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run(
     a.id, a.transcript_id, a.summary, a.lead_score, a.lead_qualification,
     a.pain_points, a.objections, a.competitors_mentioned, a.next_steps,
-    a.sentiment, a.key_quotes, a.custom_fields
+    a.sentiment, a.key_quotes, a.custom_fields,
+    a.feature_requests, a.decision_process, a.buying_triggers, a.current_tools,
+    a.use_cases, a.company_signals, a.commitment_signals, a.prospect_questions
   );
 }
 

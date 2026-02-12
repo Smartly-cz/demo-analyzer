@@ -211,14 +211,7 @@ router.post("/api/transcripts/:id/analyze", async (req: Request<IdParams>, res: 
     const result = await analyzeTranscript(transcript.id, transcript.parsed_text);
 
     res.json({
-      analysis: {
-        ...result.analysis,
-        pain_points: safeJsonParse(result.analysis.pain_points),
-        objections: safeJsonParse(result.analysis.objections),
-        competitors_mentioned: safeJsonParse(result.analysis.competitors_mentioned),
-        next_steps: safeJsonParse(result.analysis.next_steps),
-        key_quotes: safeJsonParse(result.analysis.key_quotes),
-      },
+      analysis: parseAnalysisJson(result.analysis),
       content_ideas: result.contentIdeas,
     });
   } catch (err: any) {
@@ -237,14 +230,7 @@ router.get("/api/transcripts/:id/analysis", (req: Request<IdParams>, res: Respon
   const contentIdeas = getContentIdeasByTranscript(req.params.id);
 
   res.json({
-    analysis: {
-      ...analysis,
-      pain_points: safeJsonParse(analysis.pain_points),
-      objections: safeJsonParse(analysis.objections),
-      competitors_mentioned: safeJsonParse(analysis.competitors_mentioned),
-      next_steps: safeJsonParse(analysis.next_steps),
-      key_quotes: safeJsonParse(analysis.key_quotes),
-    },
+    analysis: parseAnalysisJson(analysis),
     content_ideas: contentIdeas,
   });
 });
@@ -271,6 +257,10 @@ router.get("/api/dashboard/stats", (_req: Request, res: Response) => {
     const objectionCounts: Record<string, number> = {};
     const competitorCounts: Record<string, number> = {};
     const sentimentCounts: Record<string, number> = {};
+    const featureRequestCounts: Record<string, number> = {};
+    const toolCounts: Record<string, number> = {};
+    const questionCounts: Record<string, number> = {};
+    const triggerCounts: Record<string, number> = {};
 
     for (const a of analyses) {
       const score = a.lead_score || 0;
@@ -285,6 +275,10 @@ router.get("/api/dashboard/stats", (_req: Request, res: Response) => {
         { data: a.pain_points, counts: painPointCounts },
         { data: a.objections, counts: objectionCounts },
         { data: a.competitors_mentioned, counts: competitorCounts },
+        { data: a.feature_requests, counts: featureRequestCounts },
+        { data: a.current_tools, counts: toolCounts },
+        { data: a.prospect_questions, counts: questionCounts },
+        { data: a.buying_triggers, counts: triggerCounts },
       ]) {
         try {
           const items: string[] = JSON.parse(field.data || "[]");
@@ -312,6 +306,10 @@ router.get("/api/dashboard/stats", (_req: Request, res: Response) => {
       top_objections: sortedEntries(objectionCounts).slice(0, 8),
       top_competitors: sortedEntries(competitorCounts).slice(0, 8),
       sentiment_breakdown: sentimentCounts,
+      top_feature_requests: sortedEntries(featureRequestCounts).slice(0, 10),
+      top_tools: sortedEntries(toolCounts).slice(0, 10),
+      top_questions: sortedEntries(questionCounts).slice(0, 10),
+      top_buying_triggers: sortedEntries(triggerCounts).slice(0, 8),
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -524,6 +522,25 @@ router.post("/api/fathom/import-all", async (req: Request, res: Response) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+function parseAnalysisJson(a: any) {
+  return {
+    ...a,
+    pain_points: safeJsonParse(a.pain_points),
+    objections: safeJsonParse(a.objections),
+    competitors_mentioned: safeJsonParse(a.competitors_mentioned),
+    next_steps: safeJsonParse(a.next_steps),
+    key_quotes: safeJsonParse(a.key_quotes),
+    feature_requests: safeJsonParse(a.feature_requests),
+    decision_process: safeJsonParse(a.decision_process),
+    buying_triggers: safeJsonParse(a.buying_triggers),
+    current_tools: safeJsonParse(a.current_tools),
+    use_cases: safeJsonParse(a.use_cases),
+    company_signals: safeJsonParse(a.company_signals),
+    commitment_signals: safeJsonParse(a.commitment_signals),
+    prospect_questions: safeJsonParse(a.prospect_questions),
+  };
+}
 
 function safeJsonParse(val: string | null): any {
   if (!val) return null;

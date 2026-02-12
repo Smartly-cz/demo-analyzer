@@ -53,6 +53,24 @@ export interface AnalysisResult {
   next_steps: string[];
   sentiment: string;
   key_quotes: string[];
+  feature_requests: string[];
+  decision_process: {
+    decision_makers: string[];
+    timeline: string;
+    budget_mentioned: string;
+    process_notes: string;
+  };
+  buying_triggers: string[];
+  current_tools: string[];
+  use_cases: string[];
+  company_signals: {
+    industry: string;
+    team_size: string;
+    growth_stage: string;
+    metrics_mentioned: string[];
+  };
+  commitment_signals: { quote: string; signal_strength: string }[];
+  prospect_questions: string[];
 }
 
 export interface ContentIdea {
@@ -63,7 +81,7 @@ export interface ContentIdea {
   based_on: string;
 }
 
-const ANALYSIS_SYSTEM = `You are an expert sales analyst. Analyze demo call transcripts and provide a structured analysis. Always respond with valid JSON only, no markdown or extra text.`;
+const ANALYSIS_SYSTEM = `You are an expert sales analyst and market researcher. Analyze demo call transcripts and provide a comprehensive structured analysis covering sales signals, product intelligence, and buyer profile. Always respond with valid JSON only, no markdown or extra text.`;
 
 const ANALYSIS_USER_PREFIX = `Return a JSON object with these fields:
 - "summary": A 2-3 sentence summary of the call
@@ -75,6 +93,14 @@ const ANALYSIS_USER_PREFIX = `Return a JSON object with these fields:
 - "next_steps": Array of agreed or suggested next steps
 - "sentiment": Overall sentiment: "Very Positive", "Positive", "Neutral", "Negative", "Very Negative"
 - "key_quotes": Array of 3-5 notable quotes from the prospect (verbatim or near-verbatim)
+- "feature_requests": Array of features, capabilities, or integrations the prospect asked about or wished existed (e.g. "Can it do X?", "We'd need Y", "Does it integrate with Z?")
+- "decision_process": Object with { "decision_makers": string[] (people mentioned who influence the decision), "timeline": string (any timeline mentioned, e.g. "Q2 evaluation", "Need by March", or "No timeline mentioned"), "budget_mentioned": string (any budget signals, e.g. "$50k range", "Need to stay under current spend", or "Not discussed"), "process_notes": string (how they buy — e.g. "Needs legal review", "Committee decision", "POC required first") }
+- "buying_triggers": Array of urgency signals — why are they looking now? (e.g. "Contract renewal in 60 days", "New VP mandate", "Scaling from 10 to 50 reps", "Current tool sunsetting")
+- "current_tools": Array of tools, platforms, or systems they currently use (CRM, analytics, competitors, adjacent tools — anything mentioned)
+- "use_cases": Array of specific jobs-to-be-done or workflows they want to accomplish (not symptoms/pain points, but the actual outcomes and workflows, e.g. "Automate lead scoring across 3 regions", "Replace manual reporting with real-time dashboards")
+- "company_signals": Object with { "industry": string (or "Unknown"), "team_size": string (any team/company size mentioned, or "Unknown"), "growth_stage": string (e.g. "Series B startup", "Enterprise", "Growing rapidly", or "Unknown"), "metrics_mentioned": string[] (any numbers they shared — revenue, headcount, deal volume, conversion rates, etc.) }
+- "commitment_signals": Array of objects { "quote": string (what they said), "signal_strength": "Strong"/"Moderate"/"Weak" }. Look for intent language: "We want to move forward" (Strong), "This looks promising" (Moderate), "We'll think about it" (Weak). Include 2-5 signals.
+- "prospect_questions": Array of questions the prospect asked during the call. These reveal what matters to them and what's unclear — different from objections.
 
 Be specific and reference actual content from the transcript. If a field has no data, use an empty array or appropriate default.
 
@@ -113,7 +139,7 @@ export async function analyzeTranscript(
   const [analysisResponse, contentResponse] = await Promise.all([
     client.messages.create({
       model: getModel(),
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: ANALYSIS_SYSTEM,
       messages: [
         {
@@ -156,6 +182,14 @@ export async function analyzeTranscript(
     sentiment: analysisData.sentiment || null,
     key_quotes: JSON.stringify(analysisData.key_quotes || []),
     custom_fields: null,
+    feature_requests: JSON.stringify(analysisData.feature_requests || []),
+    decision_process: JSON.stringify(analysisData.decision_process || {}),
+    buying_triggers: JSON.stringify(analysisData.buying_triggers || []),
+    current_tools: JSON.stringify(analysisData.current_tools || []),
+    use_cases: JSON.stringify(analysisData.use_cases || []),
+    company_signals: JSON.stringify(analysisData.company_signals || {}),
+    commitment_signals: JSON.stringify(analysisData.commitment_signals || []),
+    prospect_questions: JSON.stringify(analysisData.prospect_questions || []),
   };
   insertAnalysis(analysisRow);
 
@@ -202,6 +236,9 @@ export interface AggregateReport {
   competitor_landscape: { competitor: string; mentions: number; context: string }[];
   trending_themes: { theme: string; description: string; relevance: string }[];
   content_recommendations: { title: string; type: string; description: string; priority: string; based_on_signals: string }[];
+  top_feature_requests: { feature: string; frequency: number; context: string }[];
+  tool_landscape: { tool: string; mentions: number; category: string }[];
+  buyer_profile: { dimension: string; insight: string }[];
   executive_summary: string;
   recommendations: string[];
 }
@@ -216,6 +253,9 @@ const AGGREGATE_USER_PREFIX = `Analyze the following data from multiple demo cal
 - "competitor_landscape": Array of { "competitor": string, "mentions": number, "context": string (why prospects bring them up) }. Max 6.
 - "trending_themes": Array of { "theme": string, "description": string, "relevance": string (why this matters for your product/sales strategy) }. Identify 3-5 themes.
 - "content_recommendations": Array of { "title": string, "type": string (Blog Post/Case Study/Whitepaper/Video/Webinar/LinkedIn Post/LinkedIn Article/Newsletter/Comparison Guide), "description": string, "priority": "High"/"Medium"/"Low", "based_on_signals": string }. Top 5-8 ideas ranked by potential impact.
+- "top_feature_requests": Array of { "feature": string, "frequency": number, "context": string (why prospects want this) }. Ranked by frequency, max 8. Consolidate similar requests.
+- "tool_landscape": Array of { "tool": string, "mentions": number, "category": string (e.g. "CRM", "Analytics", "Competitor", "Communication") }. What tools prospects currently use. Max 10.
+- "buyer_profile": Array of { "dimension": string, "insight": string }. Synthesize company_signals, decision_process, and buying_triggers across calls into a composite buyer profile. Include dimensions like: typical industry, company size, growth stage, buying timeline, decision process, budget signals. 5-8 dimensions.
 - "executive_summary": A 3-5 sentence strategic summary of what these calls tell you about your market position, ideal customer profile, and biggest opportunities.
 - "recommendations": Array of 3-5 actionable next-step recommendations for the sales and marketing team.
 
@@ -263,6 +303,14 @@ export async function generateAggregateReport(
       competitors_mentioned: safeParseJson(a.competitors_mentioned),
       next_steps: safeParseJson(a.next_steps),
       key_quotes: safeParseJson(a.key_quotes),
+      feature_requests: safeParseJson(a.feature_requests),
+      decision_process: safeParseJson(a.decision_process),
+      buying_triggers: safeParseJson(a.buying_triggers),
+      current_tools: safeParseJson(a.current_tools),
+      use_cases: safeParseJson(a.use_cases),
+      company_signals: safeParseJson(a.company_signals),
+      commitment_signals: safeParseJson(a.commitment_signals),
+      prospect_questions: safeParseJson(a.prospect_questions),
     };
   });
 

@@ -596,6 +596,22 @@
           <h4>Competitors Mentioned</h4>
           <div id="dash-competitors">Loading...</div>
         </div>
+        <div class="analysis-card">
+          <h4>Feature Requests</h4>
+          <div id="dash-feature-requests">Loading...</div>
+        </div>
+        <div class="analysis-card">
+          <h4>Tools / Tech Stack</h4>
+          <div id="dash-tools">Loading...</div>
+        </div>
+        <div class="analysis-card">
+          <h4>Prospect Questions</h4>
+          <div id="dash-questions">Loading...</div>
+        </div>
+        <div class="analysis-card">
+          <h4>Buying Triggers</h4>
+          <div id="dash-triggers">Loading...</div>
+        </div>
       </div>
 
       <!-- AI Report section (needs Claude) -->
@@ -620,6 +636,21 @@
         <div class="analysis-card full-width" style="margin-bottom:16px">
           <h4>Objection Playbook</h4>
           <div id="dash-objection-playbook"></div>
+        </div>
+
+        <div class="analysis-card full-width" style="margin-bottom:16px">
+          <h4>Product Roadmap Signals (Feature Requests)</h4>
+          <div id="dash-feature-detail"></div>
+        </div>
+
+        <div class="analysis-card full-width" style="margin-bottom:16px">
+          <h4>Tool Landscape</h4>
+          <div id="dash-tool-detail"></div>
+        </div>
+
+        <div class="analysis-card full-width" style="margin-bottom:16px">
+          <h4>Buyer Profile</h4>
+          <div id="dash-buyer-profile"></div>
         </div>
 
         <div class="analysis-card full-width" style="margin-bottom:16px">
@@ -1042,6 +1073,75 @@
           </div>
         </div>
 
+        <div class="analysis-card">
+          <h4>Feature Requests</h4>
+          <div class="tag-list">
+            ${(a.feature_requests || []).map(f => `<span class="tag">${esc(f)}</span>`).join('') || '<span class="tag">None identified</span>'}
+          </div>
+        </div>
+
+        <div class="analysis-card">
+          <h4>Current Tools / Tech Stack</h4>
+          <div class="tag-list">
+            ${(a.current_tools || []).map(t => `<span class="tag">${esc(t)}</span>`).join('') || '<span class="tag">None mentioned</span>'}
+          </div>
+        </div>
+
+        <div class="analysis-card">
+          <h4>Use Cases / Jobs-to-be-Done</h4>
+          <div class="tag-list">
+            ${(a.use_cases || []).map(u => `<span class="tag">${esc(u)}</span>`).join('') || '<span class="tag">None identified</span>'}
+          </div>
+        </div>
+
+        <div class="analysis-card">
+          <h4>Buying Triggers</h4>
+          <div class="tag-list">
+            ${(a.buying_triggers || []).map(b => `<span class="tag">${esc(b)}</span>`).join('') || '<span class="tag">None identified</span>'}
+          </div>
+        </div>
+
+        <div class="analysis-card">
+          <h4>Decision Process</h4>
+          ${a.decision_process ? `
+            <div style="font-size:13px;display:flex;flex-direction:column;gap:6px">
+              <div><strong>Decision Makers:</strong> ${(a.decision_process.decision_makers || []).map(d => esc(d)).join(', ') || 'Unknown'}</div>
+              <div><strong>Timeline:</strong> ${esc(a.decision_process.timeline || 'Not discussed')}</div>
+              <div><strong>Budget:</strong> ${esc(a.decision_process.budget_mentioned || 'Not discussed')}</div>
+              <div><strong>Process:</strong> ${esc(a.decision_process.process_notes || 'Not discussed')}</div>
+            </div>
+          ` : '<span style="font-size:13px;color:var(--text-dim)">No data</span>'}
+        </div>
+
+        <div class="analysis-card">
+          <h4>Company Profile</h4>
+          ${a.company_signals ? `
+            <div style="font-size:13px;display:flex;flex-direction:column;gap:6px">
+              <div><strong>Industry:</strong> ${esc(a.company_signals.industry || 'Unknown')}</div>
+              <div><strong>Team Size:</strong> ${esc(a.company_signals.team_size || 'Unknown')}</div>
+              <div><strong>Stage:</strong> ${esc(a.company_signals.growth_stage || 'Unknown')}</div>
+              ${(a.company_signals.metrics_mentioned || []).length > 0 ? `<div><strong>Metrics:</strong> ${a.company_signals.metrics_mentioned.map(m => esc(m)).join(', ')}</div>` : ''}
+            </div>
+          ` : '<span style="font-size:13px;color:var(--text-dim)">No data</span>'}
+        </div>
+
+        <div class="analysis-card full-width">
+          <h4>Commitment Signals</h4>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            ${(a.commitment_signals || []).map(c => {
+              const color = c.signal_strength === 'Strong' ? 'var(--green)' : c.signal_strength === 'Moderate' ? 'var(--yellow)' : 'var(--text-dim)';
+              return `<div style="font-size:13px"><span style="display:inline-block;width:70px;font-weight:600;color:${color}">${esc(c.signal_strength)}</span> "${esc(c.quote)}"</div>`;
+            }).join('') || '<span style="font-size:13px;color:var(--text-dim)">None detected</span>'}
+          </div>
+        </div>
+
+        <div class="analysis-card full-width">
+          <h4>Prospect Questions</h4>
+          <div class="tag-list">
+            ${(a.prospect_questions || []).map(q => `<span class="tag">${esc(q)}</span>`).join('') || '<span class="tag">None captured</span>'}
+          </div>
+        </div>
+
         <div class="analysis-card full-width">
           <h4>Key Quotes</h4>
           <div class="quote-list">
@@ -1306,6 +1406,10 @@
       renderBarChart('dash-objections', stats.top_objections, 'var(--orange)');
       // Competitors
       renderBarChart('dash-competitors', stats.top_competitors, 'var(--yellow)');
+      renderBarChart('dash-feature-requests', stats.top_feature_requests, '#e879f9');
+      renderBarChart('dash-tools', stats.top_tools, '#38bdf8');
+      renderBarChart('dash-questions', stats.top_questions, '#a78bfa');
+      renderBarChart('dash-triggers', stats.top_buying_triggers, 'var(--green)');
     }
 
     function renderBarChart(elId, items, color) {
@@ -1357,6 +1461,30 @@
           <div class="playbook-response">${esc(o.suggested_response)}</div>
         </div>
       `).join('') || '<span style="color:var(--text-dim)">No objections to address</span>';
+
+      // Feature requests (from AI report)
+      const features = report.top_feature_requests || [];
+      document.getElementById('dash-feature-detail').innerHTML = features.map(f => `
+        <div class="theme-card">
+          <h5>${esc(f.feature)} <span style="font-weight:400;color:var(--text-dim)">(${f.frequency}x)</span></h5>
+          <p>${esc(f.context)}</p>
+        </div>
+      `).join('') || '<span style="color:var(--text-dim)">No feature requests identified</span>';
+
+      // Tool landscape
+      const tools = report.tool_landscape || [];
+      document.getElementById('dash-tool-detail').innerHTML = tools.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:8px">` +
+        tools.map(t => `<span class="tag" style="font-size:13px">${esc(t.tool)} <span style="color:var(--text-dim);font-size:11px">(${t.mentions}x, ${esc(t.category)})</span></span>`).join('') +
+        `</div>` : '<span style="color:var(--text-dim)">No tools identified</span>';
+
+      // Buyer profile
+      const buyer = report.buyer_profile || [];
+      document.getElementById('dash-buyer-profile').innerHTML = buyer.map(b => `
+        <div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+          <div style="min-width:140px;font-weight:600;font-size:13px">${esc(b.dimension)}</div>
+          <div style="font-size:13px;color:var(--text-dim)">${esc(b.insight)}</div>
+        </div>
+      `).join('') || '<span style="color:var(--text-dim)">No buyer profile data</span>';
 
       // Content recommendations
       const content = report.content_recommendations || [];
