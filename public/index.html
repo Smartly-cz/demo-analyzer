@@ -508,6 +508,38 @@
       to { transform: translateY(0); opacity: 1; }
     }
 
+    /* Job status bar */
+    .job-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 10px 20px;
+      z-index: 999;
+      display: none;
+    }
+    .job-bar.active { display: flex; align-items: center; gap: 12px; justify-content: center; }
+    .job-bar .job-progress {
+      flex: 0 1 400px;
+      height: 6px;
+      background: var(--surface2);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .job-bar .job-progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 3px;
+      transition: width 0.3s;
+    }
+    .job-bar .job-text {
+      font-size: 13px;
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
     /* Dashboard */
     .stat-row {
       display: flex;
@@ -862,9 +894,94 @@
     </div>
   </div>
 
+  <!-- Persistent job status bar (visible across all tabs) -->
+  <div class="job-bar" id="job-bar">
+    <span class="spinner"></span>
+    <span class="job-text" id="job-bar-text">Analysis running...</span>
+    <div class="job-progress"><div class="job-progress-fill" id="job-bar-fill" style="width:0%"></div></div>
+  </div>
+
   <script>
     // ── State ─────────────────────────────────────
     let currentTranscriptId = null;
+
+    // ── Job polling system ────────────────────────
+    // Track active jobs so analysis survives tab switches
+    const activeJobs = new Map(); // jobId -> { type, interval, onComplete, label }
+
+    function startJobPolling(jobId, opts) {
+      const { type, label, onComplete, onProgress } = opts;
+      showJobBar(label, 0);
+      const interval = setInterval(async () => {
+        try {
+          const res = await fetch('/api/jobs/' + jobId);
+          if (!res.ok) { stopJobPolling(jobId); return; }
+          const job = await res.json();
+
+          if (job.progress && job.progress.total > 0) {
+            const pct = Math.round((job.progress.current / job.progress.total) * 100);
+            const text = `${label} (${job.progress.current}/${job.progress.total})`;
+            showJobBar(text, pct);
+            if (onProgress) onProgress(job);
+          }
+
+          if (job.status === 'completed') {
+            stopJobPolling(jobId);
+            hideJobBar();
+            if (onComplete) onComplete(job.result);
+          } else if (job.status === 'failed') {
+            stopJobPolling(jobId);
+            hideJobBar();
+            toast(job.error || 'Job failed', 'error');
+          }
+        } catch {
+          // Network error — keep polling
+        }
+      }, 2000);
+
+      activeJobs.set(jobId, { type, interval, onComplete, label });
+    }
+
+    function stopJobPolling(jobId) {
+      const entry = activeJobs.get(jobId);
+      if (entry) {
+        clearInterval(entry.interval);
+        activeJobs.delete(jobId);
+      }
+    }
+
+    function showJobBar(text, pct) {
+      const bar = document.getElementById('job-bar');
+      bar.classList.add('active');
+      document.getElementById('job-bar-text').textContent = text;
+      document.getElementById('job-bar-fill').style.width = pct + '%';
+    }
+
+    function hideJobBar() {
+      document.getElementById('job-bar').classList.remove('active');
+    }
+
+    // On page load, check for any already-running jobs (e.g. page refresh)
+    async function resumeActiveJobs() {
+      try {
+        const res = await fetch('/api/jobs/active');
+        const jobs = await res.json();
+        for (const job of jobs) {
+          if (activeJobs.has(job.id)) continue;
+          const label = job.type === 'analyze' ? 'Analyzing transcript' :
+                        job.type === 'analyze-all' ? 'Analyzing all transcripts' :
+                        'Re-analyzing all transcripts';
+          startJobPolling(job.id, {
+            type: job.type,
+            label,
+            onComplete: (result) => {
+              toast(result?.message || 'Job completed');
+              loadTranscripts();
+            },
+          });
+        }
+      } catch {}
+    }
 
     // ── Tab switching ─────────────────────────────
     document.querySelectorAll('.tab').forEach(tab => {
@@ -1023,20 +1140,40 @@
       const btn = document.getElementById('analyze-all-btn');
       const info = document.getElementById('analyze-all-info');
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>Analyzing...';
-      info.textContent = 'Running analysis on all unanalyzed transcripts — this may take a few minutes...';
+      btn.innerHTML = '<span class="spinner"></span>Starting...';
+      info.textContent = 'Starting analysis...';
 
       try {
         const res = await fetch('/api/transcripts/analyze-all', { method: 'POST' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
 
-        const msg = `Done! Analyzed ${data.analyzed} transcript(s)` +
-          (data.failed > 0 ? `, ${data.failed} failed` : '');
-        toast(msg);
-        info.textContent = msg;
-        btn.textContent = 'All Done';
-        loadTranscripts();
+        if (!data.job_id) {
+          // No job needed (all already analyzed)
+          toast(data.message);
+          info.textContent = data.message;
+          btn.textContent = 'All Done';
+          return;
+        }
+
+        info.textContent = `Analyzing ${data.total} transcript(s) in background...`;
+        btn.innerHTML = '<span class="spinner"></span>Analyzing...';
+
+        startJobPolling(data.job_id, {
+          type: 'analyze-all',
+          label: 'Analyzing all transcripts',
+          onProgress: (job) => {
+            info.textContent = `Analyzing... ${job.progress.current}/${job.progress.total}`;
+          },
+          onComplete: (result) => {
+            const msg = result.message + (result.failed > 0 ? ` (${result.failed} failed)` : '');
+            toast(msg);
+            info.textContent = msg;
+            btn.textContent = 'All Done';
+            btn.disabled = false;
+            loadTranscripts();
+          },
+        });
       } catch (err) {
         toast(err.message, 'error');
         info.textContent = 'Analysis failed: ' + err.message;
@@ -1053,22 +1190,42 @@
       const info = document.getElementById('analyze-all-info');
       btn.disabled = true;
       analyzeBtn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>Re-analyzing...';
-      info.textContent = 'Re-analyzing all transcripts with latest prompts — this may take a while...';
+      btn.innerHTML = '<span class="spinner"></span>Starting...';
+      info.textContent = 'Starting re-analysis...';
 
       try {
         const res = await fetch('/api/transcripts/reanalyze-all', { method: 'POST' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
 
-        const msg = `Done! Re-analyzed ${data.analyzed} transcript(s)` +
-          (data.failed > 0 ? `, ${data.failed} failed` : '');
-        toast(msg);
-        info.textContent = msg;
-        btn.textContent = 'Re-analyze All';
-        btn.disabled = false;
-        analyzeBtn.disabled = false;
-        loadTranscripts();
+        if (!data.job_id) {
+          toast(data.message);
+          info.textContent = data.message;
+          btn.textContent = 'Re-analyze All';
+          btn.disabled = false;
+          analyzeBtn.disabled = false;
+          return;
+        }
+
+        info.textContent = `Re-analyzing ${data.total} transcript(s) in background...`;
+        btn.innerHTML = '<span class="spinner"></span>Re-analyzing...';
+
+        startJobPolling(data.job_id, {
+          type: 'reanalyze-all',
+          label: 'Re-analyzing all transcripts',
+          onProgress: (job) => {
+            info.textContent = `Re-analyzing... ${job.progress.current}/${job.progress.total}`;
+          },
+          onComplete: (result) => {
+            const msg = result.message + (result.failed > 0 ? ` (${result.failed} failed)` : '');
+            toast(msg);
+            info.textContent = msg;
+            btn.textContent = 'Re-analyze All';
+            btn.disabled = false;
+            analyzeBtn.disabled = false;
+            loadTranscripts();
+          },
+        });
       } catch (err) {
         toast(err.message, 'error');
         info.textContent = 'Re-analysis failed: ' + err.message;
@@ -1086,9 +1243,22 @@
         const res = await fetch('/api/transcripts/' + id + '/analyze', { method: 'POST' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
-        // Replace button with analyzed badge
-        btnEl.outerHTML = '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">analyzed</span>';
-        toast('Analysis complete — score: ' + (data.analysis.lead_score || '?') + '/10');
+
+        if (data.job_id) {
+          // Background job — poll for completion
+          startJobPolling(data.job_id, {
+            type: 'analyze',
+            label: 'Analyzing transcript',
+            onComplete: (result) => {
+              btnEl.outerHTML = '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">analyzed</span>';
+              toast('Analysis complete — score: ' + (result?.analysis?.lead_score || '?') + '/10');
+            },
+          });
+        } else {
+          // Returned cached result immediately
+          btnEl.outerHTML = '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">analyzed</span>';
+          toast('Analysis complete — score: ' + (data.analysis.lead_score || '?') + '/10');
+        }
       } catch (err) {
         btnEl.disabled = false;
         btnEl.textContent = 'Retry';
@@ -1141,6 +1311,7 @@
     // ── Analyze / Re-analyze ─────────────────────
     async function runAnalysis(force) {
       if (!currentTranscriptId) return;
+      const transcriptId = currentTranscriptId; // capture for async callback
       const analyzeBtn = document.getElementById('analyze-btn');
       const reanalyzeBtn = document.getElementById('reanalyze-btn');
       const activeBtn = force ? reanalyzeBtn : analyzeBtn;
@@ -1149,17 +1320,43 @@
       activeBtn.innerHTML = '<span class="spinner"></span>' + (force ? 'Re-analyzing...' : 'Analyzing...');
 
       try {
-        const url = '/api/transcripts/' + currentTranscriptId + '/analyze' + (force ? '?force=true' : '');
+        const url = '/api/transcripts/' + transcriptId + '/analyze' + (force ? '?force=true' : '');
         const res = await fetch(url, { method: 'POST' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
-        renderAnalysis(data);
-        reanalyzeBtn.style.display = '';
-        document.getElementById('delete-analysis-btn').style.display = '';
-        toast(force ? 'Re-analysis complete' : 'Analysis complete');
+
+        if (data.job_id) {
+          // Background job — poll for completion
+          startJobPolling(data.job_id, {
+            type: 'analyze',
+            label: force ? 'Re-analyzing transcript' : 'Analyzing transcript',
+            onComplete: (result) => {
+              // Only render if still viewing same transcript
+              if (currentTranscriptId === transcriptId) {
+                renderAnalysis(result);
+                document.getElementById('reanalyze-btn').style.display = '';
+                document.getElementById('delete-analysis-btn').style.display = '';
+                analyzeBtn.disabled = false;
+                reanalyzeBtn.disabled = false;
+                analyzeBtn.textContent = 'Analyze';
+                reanalyzeBtn.textContent = 'Re-analyze';
+              }
+              toast(force ? 'Re-analysis complete' : 'Analysis complete');
+            },
+          });
+        } else {
+          // Cached result returned immediately
+          renderAnalysis(data);
+          reanalyzeBtn.style.display = '';
+          document.getElementById('delete-analysis-btn').style.display = '';
+          analyzeBtn.disabled = false;
+          reanalyzeBtn.disabled = false;
+          analyzeBtn.textContent = 'Analyze';
+          reanalyzeBtn.textContent = 'Re-analyze';
+          toast(force ? 'Re-analysis complete' : 'Analysis complete');
+        }
       } catch (err) {
         toast(err.message, 'error');
-      } finally {
         analyzeBtn.disabled = false;
         reanalyzeBtn.disabled = false;
         analyzeBtn.textContent = 'Analyze';
@@ -1895,6 +2092,7 @@
 
     // Initial load
     loadTranscripts();
+    resumeActiveJobs();
   </script>
 </body>
 </html>

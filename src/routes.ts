@@ -28,8 +28,23 @@ import {
   extractParticipants,
   FathomMeeting,
 } from "./fathom-client";
+import { createJob, getJob, updateJob, listActiveJobs } from "./jobs";
 
 const router = Router();
+
+// ── Job status endpoints ────────────────────────────────────────────
+router.get("/api/jobs/active", (_req: Request, res: Response) => {
+  res.json(listActiveJobs());
+});
+
+router.get("/api/jobs/:id", (req: Request<IdParams>, res: Response) => {
+  const job = getJob(req.params.id);
+  if (!job) {
+    res.status(404).json({ error: "Job not found" });
+    return;
+  }
+  res.json(job);
+});
 
 // File upload config
 const storage = multer.diskStorage({
@@ -136,79 +151,110 @@ router.get("/api/transcripts", (_req: Request, res: Response) => {
   res.json(transcripts);
 });
 
-// ── Analyze all unanalyzed transcripts ──────────────────────────────
+// ── Analyze all unanalyzed transcripts (background job) ─────────────
 // MUST be registered before :id routes to avoid path conflicts
 router.post("/api/transcripts/analyze-all", async (_req: Request, res: Response) => {
   try {
     const unanalyzed = listUnanalyzedTranscripts();
     if (unanalyzed.length === 0) {
-      res.json({ message: "All transcripts already analyzed", analyzed: 0, failed: 0, results: [] });
+      res.json({ message: "All transcripts already analyzed", analyzed: 0, failed: 0, results: [], job_id: null });
       return;
     }
 
-    const results: { id: string; title: string; lead_score: number | null; lead_qualification: string | null }[] = [];
-    const failures: { id: string; title: string; error: string }[] = [];
+    const jobId = uuid();
+    createJob(jobId, "analyze-all", unanalyzed.length);
+    res.json({ job_id: jobId, total: unanalyzed.length, message: "Analysis started in background" });
 
-    for (const transcript of unanalyzed) {
-      try {
-        const result = await analyzeTranscript(transcript.id, transcript.parsed_text);
-        results.push({
-          id: transcript.id,
-          title: transcript.title,
-          lead_score: result.analysis.lead_score,
-          lead_qualification: result.analysis.lead_qualification,
+    // Run in background (after response is sent)
+    (async () => {
+      updateJob(jobId, { status: "running" });
+      const results: any[] = [];
+      const failures: any[] = [];
+
+      for (const transcript of unanalyzed) {
+        try {
+          const result = await analyzeTranscript(transcript.id, transcript.parsed_text);
+          results.push({
+            id: transcript.id,
+            title: transcript.title,
+            lead_score: result.analysis.lead_score,
+            lead_qualification: result.analysis.lead_qualification,
+          });
+        } catch (err: any) {
+          failures.push({ id: transcript.id, title: transcript.title, error: err.message });
+        }
+        updateJob(jobId, {
+          progress: { current: results.length + failures.length, total: unanalyzed.length },
         });
-      } catch (err: any) {
-        failures.push({ id: transcript.id, title: transcript.title, error: err.message });
       }
-    }
 
-    res.json({
-      message: `Analyzed ${results.length} transcript(s)`,
-      analyzed: results.length,
-      failed: failures.length,
-      total: unanalyzed.length,
-      results,
-      failures: failures.length > 0 ? failures : undefined,
+      updateJob(jobId, {
+        status: "completed",
+        result: {
+          message: `Analyzed ${results.length} transcript(s)`,
+          analyzed: results.length,
+          failed: failures.length,
+          total: unanalyzed.length,
+          results,
+          failures: failures.length > 0 ? failures : undefined,
+        },
+      });
+    })().catch((err) => {
+      updateJob(jobId, { status: "failed", error: err.message });
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── Re-analyze ALL transcripts (force) ──────────────────────────────
+// ── Re-analyze ALL transcripts (force, background job) ──────────────
 router.post("/api/transcripts/reanalyze-all", async (_req: Request, res: Response) => {
   try {
     const all = listTranscripts();
     if (all.length === 0) {
-      res.json({ message: "No transcripts to re-analyze", analyzed: 0, failed: 0, results: [] });
+      res.json({ message: "No transcripts to re-analyze", analyzed: 0, failed: 0, results: [], job_id: null });
       return;
     }
 
-    const results: { id: string; title: string; lead_score: number | null; lead_qualification: string | null }[] = [];
-    const failures: { id: string; title: string; error: string }[] = [];
+    const jobId = uuid();
+    createJob(jobId, "reanalyze-all", all.length);
+    res.json({ job_id: jobId, total: all.length, message: "Re-analysis started in background" });
 
-    for (const transcript of all) {
-      try {
-        const result = await analyzeTranscript(transcript.id, transcript.parsed_text, true);
-        results.push({
-          id: transcript.id,
-          title: transcript.title,
-          lead_score: result.analysis.lead_score,
-          lead_qualification: result.analysis.lead_qualification,
+    (async () => {
+      updateJob(jobId, { status: "running" });
+      const results: any[] = [];
+      const failures: any[] = [];
+
+      for (const transcript of all) {
+        try {
+          const result = await analyzeTranscript(transcript.id, transcript.parsed_text, true);
+          results.push({
+            id: transcript.id,
+            title: transcript.title,
+            lead_score: result.analysis.lead_score,
+            lead_qualification: result.analysis.lead_qualification,
+          });
+        } catch (err: any) {
+          failures.push({ id: transcript.id, title: transcript.title, error: err.message });
+        }
+        updateJob(jobId, {
+          progress: { current: results.length + failures.length, total: all.length },
         });
-      } catch (err: any) {
-        failures.push({ id: transcript.id, title: transcript.title, error: err.message });
       }
-    }
 
-    res.json({
-      message: `Re-analyzed ${results.length} transcript(s)`,
-      analyzed: results.length,
-      failed: failures.length,
-      total: all.length,
-      results,
-      failures: failures.length > 0 ? failures : undefined,
+      updateJob(jobId, {
+        status: "completed",
+        result: {
+          message: `Re-analyzed ${results.length} transcript(s)`,
+          analyzed: results.length,
+          failed: failures.length,
+          total: all.length,
+          results,
+          failures: failures.length > 0 ? failures : undefined,
+        },
+      });
+    })().catch((err) => {
+      updateJob(jobId, { status: "failed", error: err.message });
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -250,7 +296,7 @@ router.delete("/api/transcripts/:id/analysis", (req: Request<IdParams>, res: Res
   res.json({ message: "Analysis and content ideas deleted" });
 });
 
-// ── Analyze a transcript ────────────────────────────────────────────
+// ── Analyze a transcript (background job) ───────────────────────────
 router.post("/api/transcripts/:id/analyze", async (req: Request<IdParams>, res: Response) => {
   try {
     const transcript = getTranscript(req.params.id);
@@ -260,11 +306,38 @@ router.post("/api/transcripts/:id/analyze", async (req: Request<IdParams>, res: 
     }
 
     const force = req.query.force === "true" || req.query.force === "1";
-    const result = await analyzeTranscript(transcript.id, transcript.parsed_text, force);
 
-    res.json({
-      analysis: parseAnalysisJson(result.analysis),
-      content_ideas: result.contentIdeas,
+    // Check for existing analysis (return immediately if cached and not forcing)
+    if (!force) {
+      const existing = getAnalysisByTranscript(transcript.id);
+      if (existing) {
+        const ideas = getContentIdeasByTranscript(transcript.id);
+        res.json({
+          analysis: parseAnalysisJson(existing),
+          content_ideas: ideas,
+          job_id: null,
+        });
+        return;
+      }
+    }
+
+    const jobId = uuid();
+    createJob(jobId, "analyze", 1);
+    res.json({ job_id: jobId, message: "Analysis started in background" });
+
+    (async () => {
+      updateJob(jobId, { status: "running" });
+      const result = await analyzeTranscript(transcript.id, transcript.parsed_text, force);
+      updateJob(jobId, {
+        status: "completed",
+        progress: { current: 1, total: 1 },
+        result: {
+          analysis: parseAnalysisJson(result.analysis),
+          content_ideas: result.contentIdeas,
+        },
+      });
+    })().catch((err) => {
+      updateJob(jobId, { status: "failed", error: err.message });
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
