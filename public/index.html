@@ -507,6 +507,10 @@
     <!-- Transcripts Panel -->
     <div class="panel active" id="panel-transcripts">
       <div id="transcript-list-view">
+        <div id="analyze-all-bar" style="display:none;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;background:var(--surface);padding:14px 20px;border-radius:12px;border:1px solid var(--border)">
+          <span id="analyze-all-info" style="font-size:14px;color:var(--text-dim)"></span>
+          <button class="btn btn-primary" id="analyze-all-btn">Analyze All</button>
+        </div>
         <div id="transcript-list" class="transcript-list"></div>
       </div>
 
@@ -636,20 +640,46 @@
     // ── Transcript List ───────────────────────────
     async function loadTranscripts() {
       const list = document.getElementById('transcript-list');
+      const bar = document.getElementById('analyze-all-bar');
+      const info = document.getElementById('analyze-all-info');
       try {
         const res = await fetch('/api/transcripts');
         const transcripts = await res.json();
 
         if (transcripts.length === 0) {
+          bar.style.display = 'none';
           list.innerHTML = '<div class="empty-state"><h3>No transcripts yet</h3><p>Upload a file or paste text to get started</p></div>';
           return;
+        }
+
+        // Check which transcripts have analyses
+        let analyzedCount = 0;
+        for (const t of transcripts) {
+          try {
+            const aRes = await fetch('/api/transcripts/' + t.id + '/analysis');
+            if (aRes.ok) { t._analyzed = true; analyzedCount++; }
+          } catch {}
+        }
+        const unanalyzedCount = transcripts.length - analyzedCount;
+
+        if (unanalyzedCount > 0) {
+          bar.style.display = 'flex';
+          info.textContent = `${transcripts.length} transcripts total, ${unanalyzedCount} not yet analyzed`;
+        } else {
+          bar.style.display = 'flex';
+          info.textContent = `All ${transcripts.length} transcripts analyzed`;
+          document.getElementById('analyze-all-btn').textContent = 'All Done';
+          document.getElementById('analyze-all-btn').disabled = true;
         }
 
         list.innerHTML = transcripts.map(t => `
           <div class="transcript-card" onclick="viewTranscript('${t.id}')">
             <div class="card-header">
               <h3>${esc(t.title)}</h3>
-              <span class="badge badge-${t.source}">${t.source}</span>
+              <div style="display:flex;gap:6px;align-items:center">
+                ${t._analyzed ? '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">analyzed</span>' : '<span class="badge" style="background:rgba(251,191,36,0.15);color:var(--yellow)">pending</span>'}
+                <span class="badge badge-${t.source}">${t.source}</span>
+              </div>
             </div>
             <div class="card-meta">
               ${t.date ? t.date + ' &middot; ' : ''}
@@ -667,6 +697,33 @@
       document.getElementById('transcript-list-view').style.display = '';
       document.getElementById('transcript-detail').classList.remove('active');
     }
+
+    // ── Analyze All ──────────────────────────────
+    document.getElementById('analyze-all-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('analyze-all-btn');
+      const info = document.getElementById('analyze-all-info');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Analyzing...';
+      info.textContent = 'Running analysis on all unanalyzed transcripts — this may take a few minutes...';
+
+      try {
+        const res = await fetch('/api/transcripts/analyze-all', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        const msg = `Done! Analyzed ${data.analyzed} transcript(s)` +
+          (data.failed > 0 ? `, ${data.failed} failed` : '');
+        toast(msg);
+        info.textContent = msg;
+        btn.textContent = 'All Done';
+        loadTranscripts();
+      } catch (err) {
+        toast(err.message, 'error');
+        info.textContent = 'Analysis failed: ' + err.message;
+        btn.disabled = false;
+        btn.textContent = 'Retry Analyze All';
+      }
+    });
 
     // ── Transcript Detail ─────────────────────────
     async function viewTranscript(id) {

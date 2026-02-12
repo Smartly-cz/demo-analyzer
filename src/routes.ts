@@ -11,6 +11,7 @@ import {
   insertTranscript,
   getTranscript,
   listTranscripts,
+  listUnanalyzedTranscripts,
   deleteTranscript,
   getAnalysisByTranscript,
   getContentIdeasByTranscript,
@@ -130,6 +131,46 @@ router.get("/api/transcripts", (_req: Request, res: Response) => {
     text_preview: t.parsed_text.substring(0, 200) + (t.parsed_text.length > 200 ? "..." : ""),
   }));
   res.json(transcripts);
+});
+
+// ── Analyze all unanalyzed transcripts ──────────────────────────────
+// MUST be registered before :id routes to avoid path conflicts
+router.post("/api/transcripts/analyze-all", async (_req: Request, res: Response) => {
+  try {
+    const unanalyzed = listUnanalyzedTranscripts();
+    if (unanalyzed.length === 0) {
+      res.json({ message: "All transcripts already analyzed", analyzed: 0, failed: 0, results: [] });
+      return;
+    }
+
+    const results: { id: string; title: string; lead_score: number | null; lead_qualification: string | null }[] = [];
+    const failures: { id: string; title: string; error: string }[] = [];
+
+    for (const transcript of unanalyzed) {
+      try {
+        const result = await analyzeTranscript(transcript.id, transcript.parsed_text);
+        results.push({
+          id: transcript.id,
+          title: transcript.title,
+          lead_score: result.analysis.lead_score,
+          lead_qualification: result.analysis.lead_qualification,
+        });
+      } catch (err: any) {
+        failures.push({ id: transcript.id, title: transcript.title, error: err.message });
+      }
+    }
+
+    res.json({
+      message: `Analyzed ${results.length} transcript(s)`,
+      analyzed: results.length,
+      failed: failures.length,
+      total: unanalyzed.length,
+      results,
+      failures: failures.length > 0 ? failures : undefined,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Get single transcript ───────────────────────────────────────────

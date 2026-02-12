@@ -116,6 +116,16 @@ export function listTranscripts(): TranscriptRow[] {
   return db.prepare("SELECT * FROM transcripts ORDER BY created_at DESC").all() as TranscriptRow[];
 }
 
+export function listUnanalyzedTranscripts(): TranscriptRow[] {
+  const db = getDb();
+  return db.prepare(`
+    SELECT t.* FROM transcripts t
+    LEFT JOIN analyses a ON a.transcript_id = t.id
+    WHERE a.id IS NULL
+    ORDER BY t.created_at DESC
+  `).all() as TranscriptRow[];
+}
+
 export function deleteTranscript(id: string) {
   const db = getDb();
   db.prepare("DELETE FROM transcripts WHERE id = ?").run(id);
