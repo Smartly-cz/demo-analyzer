@@ -859,7 +859,9 @@
             <div class="card-header">
               <h3>${esc(t.title)}</h3>
               <div style="display:flex;gap:6px;align-items:center">
-                ${t._analyzed ? '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">analyzed</span>' : '<span class="badge" style="background:rgba(251,191,36,0.15);color:var(--yellow)">pending</span>'}
+                ${t._analyzed
+                  ? '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">analyzed</span>'
+                  : `<button class="btn btn-primary btn-sm" id="abtn-${t.id}" onclick="event.stopPropagation(); analyzeOne('${t.id}', this)">Analyze</button>`}
                 <span class="badge badge-${t.source}">${t.source}</span>
               </div>
             </div>
@@ -906,6 +908,25 @@
         btn.textContent = 'Retry Analyze All';
       }
     });
+
+    // ── Analyze single transcript from list ────────
+    async function analyzeOne(id, btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerHTML = '<span class="spinner"></span>';
+      try {
+        const res = await fetch('/api/transcripts/' + id + '/analyze', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        // Replace button with analyzed badge
+        btnEl.outerHTML = '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">analyzed</span>';
+        toast('Analysis complete — score: ' + (data.analysis.lead_score || '?') + '/10');
+      } catch (err) {
+        btnEl.disabled = false;
+        btnEl.textContent = 'Retry';
+        btnEl.style.background = 'var(--red)';
+        toast(err.message, 'error');
+      }
+    }
 
     // ── Transcript Detail ─────────────────────────
     async function viewTranscript(id) {
