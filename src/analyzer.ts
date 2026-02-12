@@ -20,7 +20,7 @@ import {
 } from "./database";
 
 // Use Opus for deep research; override with ANTHROPIC_MODEL in .env (e.g. claude-sonnet-4-20250514 for cheaper)
-const DEFAULT_MODEL = "claude-opus-4-5-20251101";
+const DEFAULT_MODEL = "claude-sonnet-4-5-20250929";
 
 function getModel(): string {
   return process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
