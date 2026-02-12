@@ -1682,6 +1682,8 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to load patterns');
 
+        if (!data.report) throw new Error('No pattern report returned');
+
         if (data.cached !== undefined) {
           status.textContent = data.cached ? `Cached (${data.analyses_count} calls)` : `Fresh (${data.analyses_count} calls)`;
         }
@@ -1689,12 +1691,12 @@
         renderPatterns(data.report);
         btn.textContent = 'Refresh Patterns';
       } catch (err) {
-        if (!force) {
-          // GET failed (no cache yet) — leave empty state
-          status.textContent = '';
-        } else {
+        // Leave empty state, show error only when user explicitly asked
+        if (force) {
           toast(err.message, 'error');
           status.textContent = 'Error: ' + err.message;
+        } else {
+          status.textContent = '';
         }
       } finally {
         btn.disabled = false;
@@ -1705,10 +1707,12 @@
     function renderPatterns(report) {
       const content = document.getElementById('patterns-content');
 
-      if (!report) {
+      if (!report || typeof report !== 'object') {
         content.innerHTML = '<div class="empty-state"><h3>No pattern data</h3><p>Click "Generate Patterns" to cluster similar items across your analyzed calls</p></div>';
         return;
       }
+
+      try {
 
       const sections = [
         { key: 'pain_points', title: 'Pain Points', color: 'var(--accent)' },
@@ -1785,6 +1789,11 @@
       }
 
       content.innerHTML = html;
+
+      } catch (renderErr) {
+        content.innerHTML = '<div class="empty-state"><h3>Error rendering patterns</h3><p>Try clicking "Refresh Patterns" to regenerate.</p></div>';
+        console.error('[Patterns] render error:', renderErr);
+      }
     }
 
     document.getElementById('patterns-generate-btn').addEventListener('click', () => loadPatterns(true));
