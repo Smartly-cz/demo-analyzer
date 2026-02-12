@@ -13,6 +13,7 @@ import {
   listTranscripts,
   listUnanalyzedTranscripts,
   deleteTranscript,
+  deleteAnalysisByTranscript,
   getAnalysisByTranscript,
   getContentIdeasByTranscript,
   listContentIdeas,
@@ -236,6 +237,17 @@ router.delete("/api/transcripts/:id", (req: Request<IdParams>, res: Response) =>
   }
   deleteTranscript(req.params.id);
   res.json({ message: "Transcript deleted" });
+});
+
+// ── Delete analysis for a transcript ─────────────────────────────────
+router.delete("/api/transcripts/:id/analysis", (req: Request<IdParams>, res: Response) => {
+  const analysis = getAnalysisByTranscript(req.params.id);
+  if (!analysis) {
+    res.status(404).json({ error: "No analysis found for this transcript." });
+    return;
+  }
+  deleteAnalysisByTranscript(req.params.id);
+  res.json({ message: "Analysis and content ideas deleted" });
 });
 
 // ── Analyze a transcript ────────────────────────────────────────────

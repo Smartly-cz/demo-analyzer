@@ -816,6 +816,7 @@
           <div class="detail-actions">
             <button class="btn btn-primary" id="analyze-btn">Analyze</button>
             <button class="btn btn-sm" id="reanalyze-btn" style="display:none;background:var(--surface);border:1px solid var(--border)">Re-analyze</button>
+            <button class="btn btn-sm" id="delete-analysis-btn" style="display:none;background:var(--surface);border:1px solid var(--border);color:var(--red)">Delete Analysis</button>
             <button class="btn btn-danger btn-sm" id="delete-btn">Delete</button>
           </div>
         </div>
@@ -1113,12 +1114,14 @@
         // Check for existing analysis
         document.getElementById('analysis-section').style.display = 'none';
         document.getElementById('reanalyze-btn').style.display = 'none';
+        document.getElementById('delete-analysis-btn').style.display = 'none';
         try {
           const aRes = await fetch('/api/transcripts/' + id + '/analysis');
           if (aRes.ok) {
             const aData = await aRes.json();
             renderAnalysis(aData);
             document.getElementById('reanalyze-btn').style.display = '';
+            document.getElementById('delete-analysis-btn').style.display = '';
           }
         } catch {}
 
@@ -1152,6 +1155,7 @@
         if (!res.ok) throw new Error(data.error);
         renderAnalysis(data);
         reanalyzeBtn.style.display = '';
+        document.getElementById('delete-analysis-btn').style.display = '';
         toast(force ? 'Re-analysis complete' : 'Analysis complete');
       } catch (err) {
         toast(err.message, 'error');
@@ -1308,7 +1312,23 @@
       `).join('') || '<div class="empty-state">No content ideas generated</div>';
     }
 
-    // ── Delete ────────────────────────────────────
+    // ── Delete Analysis ────────────────────────────
+    document.getElementById('delete-analysis-btn').addEventListener('click', async () => {
+      if (!currentTranscriptId || !confirm('Delete the analysis and content ideas for this transcript? The transcript itself will be kept.')) return;
+      try {
+        const res = await fetch('/api/transcripts/' + currentTranscriptId + '/analysis', { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        toast('Analysis deleted');
+        document.getElementById('analysis-section').style.display = 'none';
+        document.getElementById('reanalyze-btn').style.display = 'none';
+        document.getElementById('delete-analysis-btn').style.display = 'none';
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+
+    // ── Delete Transcript ─────────────────────────
     document.getElementById('delete-btn').addEventListener('click', async () => {
       if (!currentTranscriptId || !confirm('Delete this transcript and its analysis?')) return;
       try {
