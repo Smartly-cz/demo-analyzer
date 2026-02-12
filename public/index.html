@@ -419,6 +419,44 @@
     .filter-chip.active:hover { background: var(--accent-hover); }
     .filter-count { font-size: 12px; color: var(--text-dim); margin-left: auto; white-space: nowrap; }
 
+    .cluster-section { margin-bottom: 28px; }
+    .cluster-section h4 { font-size: 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .cluster-section h4 .cluster-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(108,114,255,0.15); color: var(--accent); font-weight: 600; }
+    .cluster-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 8px;
+    }
+    .cluster-card .cluster-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+    }
+    .cluster-card .cluster-header h5 { margin: 0; font-size: 14px; }
+    .cluster-card .cluster-count {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 2px 10px;
+      border-radius: 10px;
+      background: rgba(108,114,255,0.15);
+      color: var(--accent);
+    }
+    .cluster-card .cluster-variants {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .cluster-card .cluster-variants .variant {
+      padding: 3px 0;
+    }
+    .cluster-card .cluster-variants.hidden { display: none; }
+    .cluster-card .cluster-header { user-select: none; }
+
     .transcript-text {
       background: var(--surface);
       border-radius: 12px;
@@ -597,6 +635,7 @@
       <button class="tab active" data-tab="transcripts">Transcripts</button>
       <button class="tab" data-tab="upload">Upload / Import</button>
       <button class="tab" data-tab="fathom">Fathom</button>
+      <button class="tab" data-tab="patterns">Patterns</button>
       <button class="tab" data-tab="ideas">Content Ideas</button>
     </div>
 
@@ -794,6 +833,23 @@
       </div>
     </div>
 
+    <!-- Patterns Panel -->
+    <div class="panel" id="panel-patterns">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <div>
+          <h3 style="margin:0">Cross-Call Patterns</h3>
+          <p style="font-size:13px;color:var(--text-dim);margin:4px 0 0">AI-powered clustering of similar items across all calls. Items that mean the same thing are grouped together.</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="patterns-status" style="font-size:12px;color:var(--text-dim)"></span>
+          <button class="btn btn-primary btn-sm" id="patterns-generate-btn">Generate Patterns</button>
+        </div>
+      </div>
+      <div id="patterns-content">
+        <div class="empty-state"><h3>No pattern data yet</h3><p>Click "Generate Patterns" to cluster similar items across your analyzed calls</p></div>
+      </div>
+    </div>
+
     <!-- Content Ideas Panel -->
     <div class="panel" id="panel-ideas">
       <div id="ideas-filter-bar" class="filter-bar" style="display:none">
@@ -820,6 +876,7 @@
         if (tab.dataset.tab === 'dashboard') loadDashboard();
         if (tab.dataset.tab === 'transcripts') loadTranscripts();
         if (tab.dataset.tab === 'fathom') checkFathomStatus();
+        if (tab.dataset.tab === 'patterns') loadPatterns(false);
         if (tab.dataset.tab === 'ideas') loadAllIdeas();
       });
     });
@@ -1358,6 +1415,129 @@
     }
 
     document.getElementById('ideas-search').addEventListener('input', renderFilteredIdeas);
+
+    // ── Patterns ──────────────────────────────────
+    async function loadPatterns(force) {
+      const content = document.getElementById('patterns-content');
+      const btn = document.getElementById('patterns-generate-btn');
+      const status = document.getElementById('patterns-status');
+
+      if (force) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span>Generating...';
+        status.textContent = 'Clustering similar items — this may take a moment...';
+      }
+
+      try {
+        const method = force ? 'POST' : 'GET';
+        const res = await fetch('/api/dashboard/patterns', { method });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error);
+        }
+        const data = await res.json();
+
+        if (data.cached !== undefined) {
+          status.textContent = data.cached ? `Cached (${data.analyses_count} calls)` : `Fresh (${data.analyses_count} calls)`;
+        }
+
+        renderPatterns(data.report);
+        btn.textContent = 'Refresh Patterns';
+      } catch (err) {
+        if (!force) {
+          // GET failed (no cache yet) — leave empty state
+          status.textContent = '';
+        } else {
+          toast(err.message, 'error');
+          status.textContent = 'Error: ' + err.message;
+        }
+      } finally {
+        btn.disabled = false;
+        if (btn.querySelector('.spinner')) btn.textContent = 'Refresh Patterns';
+      }
+    }
+
+    function renderPatterns(report) {
+      const content = document.getElementById('patterns-content');
+
+      const sections = [
+        { key: 'pain_points', title: 'Pain Points', color: 'var(--accent)' },
+        { key: 'objections', title: 'Objections', color: 'var(--orange)' },
+        { key: 'feature_requests', title: 'Feature Requests', color: '#e879f9' },
+        { key: 'use_cases', title: 'Use Cases', color: '#38bdf8' },
+        { key: 'buying_triggers', title: 'Buying Triggers', color: 'var(--green)' },
+        { key: 'prospect_questions', title: 'Prospect Questions', color: '#a78bfa' },
+      ];
+
+      let html = '';
+
+      for (const sec of sections) {
+        const clusters = report[sec.key] || [];
+        if (clusters.length === 0) continue;
+
+        const totalItems = clusters.reduce((sum, c) => sum + c.count, 0);
+        html += `<div class="cluster-section">
+          <h4 style="color:${sec.color}">${sec.title} <span class="cluster-badge">${clusters.length} patterns from ${totalItems} items</span></h4>`;
+
+        for (const cluster of clusters) {
+          const variantCount = (cluster.variants || []).length;
+          const hasVariants = variantCount > 1;
+          const callsHtml = (cluster.calls || []).length > 0
+            ? `<div style="margin-top:6px;font-size:11px;color:var(--text-dim)">Calls: ${cluster.calls.map(c => esc(c)).join(', ')}</div>`
+            : '';
+
+          html += `<div class="cluster-card">
+            <div class="cluster-header" ${hasVariants ? 'onclick="this.parentElement.querySelector(\'.cluster-variants\').classList.toggle(\'hidden\')"' : ''}>
+              <h5>${esc(cluster.canonical)}</h5>
+              <span class="cluster-count">${cluster.count}x</span>
+            </div>
+            ${hasVariants ? `<div class="cluster-variants hidden">
+              <div style="font-weight:600;margin-bottom:4px">Includes:</div>
+              ${cluster.variants.map(v => `<div class="variant">• ${esc(v)}</div>`).join('')}
+              ${callsHtml}
+            </div>` : callsHtml ? `<div class="cluster-variants">${callsHtml}</div>` : ''}
+          </div>`;
+        }
+
+        html += `</div>`;
+      }
+
+      // Content idea clusters
+      const contentClusters = report.content_ideas || [];
+      if (contentClusters.length > 0) {
+        const totalIdeas = contentClusters.reduce((sum, c) => sum + c.count, 0);
+        html += `<div class="cluster-section">
+          <h4>Content Ideas <span class="cluster-badge">${contentClusters.length} unique ideas from ${totalIdeas} total</span></h4>`;
+
+        for (const cluster of contentClusters) {
+          const hasVariants = (cluster.variants || []).length > 1;
+          html += `<div class="cluster-card">
+            <div class="cluster-header" ${hasVariants ? 'onclick="this.parentElement.querySelector(\'.cluster-variants\').classList.toggle(\'hidden\')"' : ''}>
+              <div>
+                <div class="idea-type${ideaTypeClass(cluster.type)}" style="margin-bottom:4px">${esc(cluster.type)}</div>
+                <h5>${esc(cluster.canonical_title)}</h5>
+              </div>
+              <span class="cluster-count">${cluster.count}x</span>
+            </div>
+            ${hasVariants ? `<div class="cluster-variants hidden">
+              <div style="font-weight:600;margin-bottom:4px">Similar ideas:</div>
+              ${cluster.variants.map(v => `<div class="variant">• <strong>${esc(v.title)}</strong> — ${esc(v.description)}</div>`).join('')}
+            </div>` : ''}
+          </div>`;
+        }
+
+        html += `</div>`;
+      }
+
+      if (!html) {
+        content.innerHTML = '<div class="empty-state"><h3>No patterns found</h3><p>Need more analyzed calls to detect patterns</p></div>';
+        return;
+      }
+
+      content.innerHTML = html;
+    }
+
+    document.getElementById('patterns-generate-btn').addEventListener('click', () => loadPatterns(true));
 
     // ── Helpers ───────────────────────────────────
     function ideaTypeClass(type) {

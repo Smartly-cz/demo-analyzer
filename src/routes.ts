@@ -20,7 +20,7 @@ import {
   getLatestAggregateReport,
 } from "./database";
 import { parseTranscript } from "./parsers";
-import { analyzeTranscript, generateAggregateReport } from "./analyzer";
+import { analyzeTranscript, generateAggregateReport, generatePatternReport } from "./analyzer";
 import {
   FathomClient,
   fathomTranscriptToText,
@@ -369,6 +369,25 @@ router.get("/api/dashboard/report", async (_req: Request, res: Response) => {
 router.post("/api/dashboard/report", async (_req: Request, res: Response) => {
   try {
     const result = await generateAggregateReport(true);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Pattern detection (AI-powered clustering) ───────────────────────
+router.get("/api/dashboard/patterns", async (_req: Request, res: Response) => {
+  try {
+    const result = await generatePatternReport(false);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/api/dashboard/patterns", async (_req: Request, res: Response) => {
+  try {
+    const result = await generatePatternReport(true);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -9,7 +9,11 @@ import {
   getAnalysisWithTranscript,
   getLatestAggregateReport,
   insertAggregateReport,
+  getLatestPatternReport,
+  insertPatternReport,
   getAnalysesHash,
+  listAllAnalyses,
+  listContentIdeas,
   AnalysisRow,
   ContentIdeaRow,
   AggregateReportRow,
@@ -356,4 +360,159 @@ export async function generateAggregateReport(
 function safeParseJson(val: string | null): any {
   if (!val) return [];
   try { return JSON.parse(val); } catch { return val; }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Pattern Detection — cluster similar items across calls
+// ═══════════════════════════════════════════════════════════════════
+
+export interface PatternReport {
+  pain_points: PatternCluster[];
+  objections: PatternCluster[];
+  feature_requests: PatternCluster[];
+  use_cases: PatternCluster[];
+  buying_triggers: PatternCluster[];
+  prospect_questions: PatternCluster[];
+  content_ideas: ContentCluster[];
+}
+
+export interface PatternCluster {
+  canonical: string;
+  count: number;
+  variants: string[];
+  calls: string[];
+}
+
+export interface ContentCluster {
+  canonical_title: string;
+  type: string;
+  count: number;
+  variants: { title: string; description: string }[];
+}
+
+const PATTERN_SYSTEM = `You are a data analyst specializing in clustering and deduplication. You will receive arrays of free-text items extracted from multiple demo call analyses. Many items mean the same thing but are worded differently. Your job is to group them into canonical clusters. Always respond with valid JSON only, no markdown or extra text.`;
+
+const PATTERN_USER_PREFIX = `I have items extracted from multiple demo call analyses. Many items refer to the same concept but are phrased differently.
+
+For each category, cluster the items into groups of similar meaning. Return a JSON object with:
+
+- "pain_points": Array of { "canonical": string (short, canonical name for this cluster), "count": number (total occurrences), "variants": string[] (all original wordings), "calls": string[] (transcript titles where this appeared) }
+- "objections": Same structure
+- "feature_requests": Same structure
+- "use_cases": Same structure
+- "buying_triggers": Same structure
+- "prospect_questions": Same structure
+- "content_ideas": Array of { "canonical_title": string (best representative title), "type": string (content type), "count": number (how many similar ideas), "variants": [{ "title": string, "description": string }] }
+
+Rules:
+- Be aggressive about merging — if two items mean roughly the same thing, cluster them together
+- "Manual reporting" and "Reports take too long" = same cluster
+- "Need Salesforce integration" and "Does it integrate with Salesforce?" = same cluster
+- The "canonical" name should be the clearest, most descriptive version
+- Sort clusters by count (highest first)
+- Items that are truly unique should be their own cluster with count=1
+
+DATA:
+`;
+
+export async function generatePatternReport(
+  force: boolean = false
+): Promise<{ report: PatternReport; cached: boolean; analyses_count: number }> {
+  const currentHash = getAnalysesHash();
+  const analyses = listAllAnalyses();
+
+  if (analyses.length === 0) {
+    throw new Error("No analyzed transcripts yet. Analyze at least one transcript first.");
+  }
+
+  // Check cache
+  if (!force) {
+    const existing = getLatestPatternReport();
+    if (existing && existing.analyses_hash === currentHash) {
+      return {
+        report: JSON.parse(existing.report),
+        cached: true,
+        analyses_count: existing.analyses_count,
+      };
+    }
+  }
+
+  // Collect all raw items from analyses, tracking which call they came from
+  const allData: Record<string, { items: string[]; callTitle: string }[]> = {
+    pain_points: [],
+    objections: [],
+    feature_requests: [],
+    use_cases: [],
+    buying_triggers: [],
+    prospect_questions: [],
+  };
+
+  // We need transcript titles — get analyses with transcript info
+  const analysesWithTranscripts = getAnalysisWithTranscript();
+
+  for (const row of analysesWithTranscripts) {
+    const a = row.analysis;
+    const title = row.title;
+    for (const field of Object.keys(allData)) {
+      const raw = (a as any)[field];
+      const items: string[] = safeParseJson(raw);
+      if (Array.isArray(items) && items.length > 0) {
+        allData[field].push({ items, callTitle: title });
+      }
+    }
+  }
+
+  // Also collect content ideas
+  const contentIdeas = listContentIdeas();
+  const contentInput = contentIdeas.map(c => ({
+    title: c.title,
+    type: c.type,
+    description: c.description,
+  }));
+
+  // Build the input for the AI
+  const clusterInput: Record<string, { item: string; call: string }[]> = {};
+  for (const [field, entries] of Object.entries(allData)) {
+    clusterInput[field] = [];
+    for (const entry of entries) {
+      for (const item of entry.items) {
+        clusterInput[field].push({ item, call: entry.callTitle });
+      }
+    }
+  }
+
+  const inputPayload = {
+    ...clusterInput,
+    content_ideas: contentInput,
+  };
+
+  const client = getClaude();
+  const response = await client.messages.create({
+    model: getModel(),
+    max_tokens: 8192,
+    system: PATTERN_SYSTEM,
+    messages: [
+      {
+        role: "user",
+        content: PATTERN_USER_PREFIX + JSON.stringify(inputPayload, null, 2),
+      },
+    ],
+    temperature: 0.2,
+  });
+
+  const raw = getTextFromMessage(response);
+  const report: PatternReport = JSON.parse(
+    raw.trim().replace(/^```json\s*/i, "").replace(/\s*```\s*$/, "") || "{}"
+  );
+
+  // Cache it
+  const id = uuid();
+  insertPatternReport({
+    id,
+    analyses_hash: currentHash,
+    analyses_count: analyses.length,
+    report: JSON.stringify(report),
+  });
+
+  return { report, cached: false, analyses_count: analyses.length };
 }

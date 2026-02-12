@@ -63,6 +63,14 @@ function initSchema(db: Database.Database) {
       report TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS pattern_reports (
+      id TEXT PRIMARY KEY,
+      analyses_hash TEXT NOT NULL,
+      analyses_count INTEGER NOT NULL,
+      report TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migrate: add new analysis columns (safe to run repeatedly — silently ignored if already exist)
@@ -254,6 +262,23 @@ export function insertAggregateReport(r: Omit<AggregateReportRow, "created_at">)
   const db = getDb();
   db.prepare(`
     INSERT INTO aggregate_reports (id, analyses_hash, analyses_count, report)
+    VALUES (?, ?, ?, ?)
+  `).run(r.id, r.analyses_hash, r.analyses_count, r.report);
+}
+
+// ── Pattern reports (cross-call clustering) ─────────────────────────
+
+export function getLatestPatternReport(): AggregateReportRow | undefined {
+  const db = getDb();
+  return db.prepare(
+    "SELECT * FROM pattern_reports ORDER BY created_at DESC LIMIT 1"
+  ).get() as AggregateReportRow | undefined;
+}
+
+export function insertPatternReport(r: Omit<AggregateReportRow, "created_at">) {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO pattern_reports (id, analyses_hash, analyses_count, report)
     VALUES (?, ?, ?, ?)
   `).run(r.id, r.analyses_hash, r.analyses_count, r.report);
 }
