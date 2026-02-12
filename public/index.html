@@ -370,6 +370,8 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
+    .idea-card .idea-type.type-linkedin { color: #0a66c2; }
+    .idea-card .idea-type.type-newsletter { color: var(--green); }
 
     .idea-card h4 {
       margin: 6px 0 8px;
@@ -1051,7 +1053,7 @@
       const ideasList = document.getElementById('ideas-list');
       ideasList.innerHTML = ideas.map(i => `
         <div class="idea-card">
-          <div class="idea-type">${esc(i.type)}</div>
+          <div class="idea-type${ideaTypeClass(i.type)}">${esc(i.type)}</div>
           <h4>${esc(i.title)}</h4>
           <p>${esc(i.description)}</p>
           ${i.target_audience ? `<p style="margin-top:6px"><strong>Audience:</strong> ${esc(i.target_audience)}</p>` : ''}
@@ -1086,7 +1088,7 @@
 
         list.innerHTML = ideas.map(i => `
           <div class="idea-card">
-            <div class="idea-type">${esc(i.type)}</div>
+            <div class="idea-type${ideaTypeClass(i.type)}">${esc(i.type)}</div>
             <h4>${esc(i.title)}</h4>
             <p>${esc(i.description)}</p>
             ${i.target_audience ? `<p style="margin-top:6px"><strong>Audience:</strong> ${esc(i.target_audience)}</p>` : ''}
@@ -1098,6 +1100,14 @@
     }
 
     // ── Helpers ───────────────────────────────────
+    function ideaTypeClass(type) {
+      if (!type) return '';
+      const t = type.toLowerCase();
+      if (t.includes('linkedin')) return ' type-linkedin';
+      if (t.includes('newsletter')) return ' type-newsletter';
+      return '';
+    }
+
     function esc(s) {
       if (!s) return '';
       const d = document.createElement('div');
@@ -1355,7 +1365,7 @@
         return `
           <div class="idea-card">
             <div style="display:flex;justify-content:space-between;align-items:center">
-              <div class="idea-type">${esc(c.type)}</div>
+              <div class="idea-type${ideaTypeClass(c.type)}">${esc(c.type)}</div>
               <span style="font-size:11px;font-weight:600;color:${prioColor}">${esc(c.priority)} PRIORITY</span>
             </div>
             <h4>${esc(c.title)}</h4>

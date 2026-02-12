@@ -81,16 +81,17 @@ Be specific and reference actual content from the transcript. If a field has no 
 TRANSCRIPT:
 `;
 
-const CONTENT_IDEAS_SYSTEM = `You are a B2B content marketing strategist. Based on demo call transcripts, suggest content ideas that would resonate with similar prospects. Always respond with valid JSON only: either a JSON array of 3-5 content ideas, or a single object with an "ideas" or "content_ideas" array. No markdown or extra text.`;
+const CONTENT_IDEAS_SYSTEM = `You are a B2B content marketing and personal branding strategist. Based on demo call transcripts, suggest content ideas that would resonate with similar prospects. Include ideas for personal LinkedIn presence (posts and articles) and newsletter content — these are powerful channels for thought leadership and nurturing leads. Always respond with valid JSON only: either a JSON array of 3-5 content ideas, or a single object with an "ideas" or "content_ideas" array. No markdown or extra text.`;
 
 const CONTENT_IDEAS_USER_PREFIX = `Return a JSON array of 3-5 content ideas. Each idea should be a JSON object with:
 - "title": A compelling title for the content piece
-- "type": One of "Blog Post", "Case Study", "Whitepaper", "Video", "Webinar", "Social Post", "Email Sequence", "FAQ", "Comparison Guide"
+- "type": One of "Blog Post", "Case Study", "Whitepaper", "Video", "Webinar", "LinkedIn Post", "LinkedIn Article", "Newsletter", "Email Sequence", "FAQ", "Comparison Guide"
 - "description": 2-3 sentences describing the content and angle
 - "target_audience": Who this content is for
 - "based_on": What specific part of the conversation inspired this idea
 
 Focus on pain points, objections, and questions that came up. These are real signals from real prospects.
+Always include at least one LinkedIn content idea (Post or Article) and one Newsletter idea. LinkedIn posts should be concise thought-leadership takes; LinkedIn articles should be deeper dives. Newsletter ideas should be value-packed content that nurtures leads over time.
 
 TRANSCRIPT:
 `;
@@ -214,7 +215,7 @@ const AGGREGATE_USER_PREFIX = `Analyze the following data from multiple demo cal
 - "top_objections": Array of { "objection": string, "frequency": number, "suggested_response": string (a recommended way to handle this objection) }. Max 6.
 - "competitor_landscape": Array of { "competitor": string, "mentions": number, "context": string (why prospects bring them up) }. Max 6.
 - "trending_themes": Array of { "theme": string, "description": string, "relevance": string (why this matters for your product/sales strategy) }. Identify 3-5 themes.
-- "content_recommendations": Array of { "title": string, "type": string (Blog Post/Case Study/Whitepaper/Video/Webinar/Comparison Guide), "description": string, "priority": "High"/"Medium"/"Low", "based_on_signals": string }. Top 5-8 ideas ranked by potential impact.
+- "content_recommendations": Array of { "title": string, "type": string (Blog Post/Case Study/Whitepaper/Video/Webinar/LinkedIn Post/LinkedIn Article/Newsletter/Comparison Guide), "description": string, "priority": "High"/"Medium"/"Low", "based_on_signals": string }. Top 5-8 ideas ranked by potential impact.
 - "executive_summary": A 3-5 sentence strategic summary of what these calls tell you about your market position, ideal customer profile, and biggest opportunities.
 - "recommendations": Array of 3-5 actionable next-step recommendations for the sales and marketing team.
 
