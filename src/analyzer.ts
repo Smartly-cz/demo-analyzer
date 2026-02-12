@@ -341,9 +341,13 @@ export async function generateAggregateReport(
   });
 
   const raw = getTextFromMessage(response);
-  const report: AggregateReport = JSON.parse(
-    raw.trim().replace(/^```json\s*/i, "").replace(/\s*```\s*$/, "") || "{}"
-  );
+  let report: AggregateReport;
+  try {
+    report = JSON.parse(extractJsonFromText(raw));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Claude returned invalid JSON for the report. Please try again. (${msg})`);
+  }
 
   // Cache it
   const id = uuid();
@@ -360,6 +364,59 @@ export async function generateAggregateReport(
 function safeParseJson(val: string | null): any {
   if (!val) return [];
   try { return JSON.parse(val); } catch { return val; }
+}
+
+/** Extract a JSON object from raw model output (handles markdown fences and trailing text). */
+function extractJsonFromText(raw: string): string {
+  let s = raw.trim();
+  const jsonMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) s = jsonMatch[1].trim();
+  const start = s.indexOf("{");
+  if (start === -1) return "{}";
+  let depth = 0;
+  for (let i = start; i < s.length; i++) {
+    if (s[i] === "{") depth++;
+    else if (s[i] === "}") {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return s.slice(start);
+}
+
+const PATTERN_KEYS: (keyof PatternReport)[] = [
+  "pain_points", "objections", "feature_requests", "use_cases",
+  "buying_triggers", "prospect_questions", "content_ideas",
+];
+
+/** Try to repair truncated pattern JSON (e.g. response cut off by token limit). */
+function tryRepairTruncatedPatternJson(jsonStr: string, parseError: string): PatternReport | null {
+  const posMatch = parseError.match(/position\s+(\d+)/i);
+  const pos = posMatch ? Math.min(parseInt(posMatch[1], 10), jsonStr.length) : jsonStr.length;
+  if (pos <= 0) return null;
+
+  const trunc = jsonStr.slice(0, pos);
+  const lastClusterEnd = trunc.lastIndexOf("},\n");
+  const cut = lastClusterEnd >= 0 ? lastClusterEnd : trunc.lastIndexOf("}");
+  if (cut < 0) return null;
+
+  const prefix = trunc.slice(0, cut + 1);
+  const lastKeyMatch = prefix.match(/"([^"]+)":\s*\[/g);
+  const lastKey = lastKeyMatch ? lastKeyMatch[lastKeyMatch.length - 1] : null;
+  const keyIndex = lastKey ? PATTERN_KEYS.findIndex((k) => lastKey.startsWith(`"${k}"`)) : 0;
+  const keysToAdd = keyIndex >= 0 ? PATTERN_KEYS.slice(keyIndex + 1) : PATTERN_KEYS.slice(1);
+  const suffix = "]" + (keysToAdd.length ? ", " + keysToAdd.map((k) => `"${k}": []`).join(", ") : "") + " }";
+  const repaired = prefix + suffix;
+
+  try {
+    const report = JSON.parse(repaired) as PatternReport;
+    for (const key of PATTERN_KEYS) {
+      if (!Array.isArray(report[key])) report[key] = [];
+    }
+    return report;
+  } catch {
+    return null;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -390,27 +447,32 @@ export interface ContentCluster {
   variants: { title: string; description: string }[];
 }
 
-const PATTERN_SYSTEM = `You are a data analyst specializing in clustering and deduplication. You will receive arrays of free-text items extracted from multiple demo call analyses. Many items mean the same thing but are worded differently. Your job is to group them into canonical clusters. Always respond with valid JSON only, no markdown or extra text.`;
+const PATTERN_SYSTEM = `You are a data analyst specializing in clustering and deduplication. You will receive arrays of free-text items extracted from multiple demo call analyses. Many items mean the same thing but are worded differently. Your job is to group them into canonical clusters. Always respond with valid JSON only, no markdown or extra text. Never truncate your response — stay within output limits by following the length limits below.`;
 
 const PATTERN_USER_PREFIX = `I have items extracted from multiple demo call analyses. Many items refer to the same concept but are phrased differently.
 
 For each category, cluster the items into groups of similar meaning. Return a JSON object with:
 
-- "pain_points": Array of { "canonical": string (short, canonical name for this cluster), "count": number (total occurrences), "variants": string[] (all original wordings), "calls": string[] (transcript titles where this appeared) }
+- "pain_points": Array of { "canonical": string, "count": number, "variants": string[], "calls": string[] }
 - "objections": Same structure
 - "feature_requests": Same structure
 - "use_cases": Same structure
 - "buying_triggers": Same structure
 - "prospect_questions": Same structure
-- "content_ideas": Array of { "canonical_title": string (best representative title), "type": string (content type), "count": number (how many similar ideas), "variants": [{ "title": string, "description": string }] }
+- "content_ideas": Array of { "canonical_title": string, "type": string, "count": number, "variants": [{ "title": string, "description": string }] }
 
 Rules:
 - Be aggressive about merging — if two items mean roughly the same thing, cluster them together
 - "Manual reporting" and "Reports take too long" = same cluster
 - "Need Salesforce integration" and "Does it integrate with Salesforce?" = same cluster
-- The "canonical" name should be the clearest, most descriptive version
+- The "canonical" name should be the clearest, most descriptive version (max 100 chars)
 - Sort clusters by count (highest first)
 - Items that are truly unique should be their own cluster with count=1
+- IMPORTANT — keep output size manageable so your response is never cut off:
+  - Max 10 clusters per category (merge more aggressively if needed)
+  - Max 8 variants per cluster (list the most representative)
+  - Max 6 call titles per cluster
+  - Keep every string under 150 characters; escape quotes and newlines in JSON
 
 DATA:
 `;
@@ -489,7 +551,7 @@ export async function generatePatternReport(
   const client = getClaude();
   const response = await client.messages.create({
     model: getModel(),
-    max_tokens: 8192,
+    max_tokens: 16384,
     system: PATTERN_SYSTEM,
     messages: [
       {
@@ -501,9 +563,43 @@ export async function generatePatternReport(
   });
 
   const raw = getTextFromMessage(response);
-  const report: PatternReport = JSON.parse(
-    raw.trim().replace(/^```json\s*/i, "").replace(/\s*```\s*$/, "") || "{}"
-  );
+
+  // Debug: log and persist raw output so we can inspect what Claude returned
+  const path = require("path");
+  const fs = require("fs");
+  const debugPath = path.join(process.cwd(), ".pattern-response-debug.txt");
+  const preview = raw.length > 800 ? raw.slice(0, 400) + "\n\n... [truncated] ...\n\n" + raw.slice(-400) : raw;
+  console.error("[Patterns] Claude raw response length:", raw.length);
+  console.error("[Patterns] Preview:\n", preview);
+  try {
+    fs.writeFileSync(debugPath, raw, "utf8");
+    console.error("[Patterns] Full response written to", debugPath);
+  } catch (_) {}
+
+  let report: PatternReport;
+  const jsonStr = extractJsonFromText(raw);
+  try {
+    report = JSON.parse(jsonStr);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[Patterns] JSON parse error:", msg);
+    const repaired = tryRepairTruncatedPatternJson(jsonStr, msg);
+    if (repaired) {
+      report = repaired;
+      console.error("[Patterns] Used repaired (truncated) JSON.");
+    } else {
+      throw new Error(`Claude returned invalid JSON. Please try "Refresh Patterns" again. (${msg})`);
+    }
+  }
+
+  // Normalize: ensure all keys exist and are arrays
+  const keys: (keyof PatternReport)[] = [
+    "pain_points", "objections", "feature_requests", "use_cases",
+    "buying_triggers", "prospect_questions", "content_ideas",
+  ];
+  for (const key of keys) {
+    if (!Array.isArray(report[key])) report[key] = [] as any;
+  }
 
   // Cache it
   const id = uuid();

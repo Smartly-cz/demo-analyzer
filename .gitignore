@@ -5,3 +5,4 @@ dist/
 *.db-wal
 .env
 uploads/
+.pattern-response-debug.txt

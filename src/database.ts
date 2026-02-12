@@ -241,14 +241,34 @@ export function listAllAnalyses(): AnalysisRow[] {
   return db.prepare("SELECT * FROM analyses ORDER BY created_at DESC").all() as AnalysisRow[];
 }
 
+const ANALYSIS_COLUMNS = [
+  "id", "transcript_id", "summary", "lead_score", "lead_qualification",
+  "pain_points", "objections", "competitors_mentioned", "next_steps",
+  "sentiment", "key_quotes", "custom_fields", "feature_requests",
+  "decision_process", "buying_triggers", "current_tools", "use_cases",
+  "company_signals", "commitment_signals", "prospect_questions", "created_at",
+] as const;
+
 export function getAnalysisWithTranscript(): { analysis: AnalysisRow; title: string; date: string | null; participants: string | null }[] {
   const db = getDb();
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT a.*, t.title, t.date, t.participants
     FROM analyses a
     JOIN transcripts t ON t.id = a.transcript_id
     ORDER BY a.created_at DESC
   `).all() as any[];
+  return rows.map((row) => {
+    const analysis: any = {};
+    for (const key of ANALYSIS_COLUMNS) {
+      analysis[key] = row[key] ?? null;
+    }
+    return {
+      analysis: analysis as AnalysisRow,
+      title: row.title ?? "",
+      date: row.date ?? null,
+      participants: row.participants ?? null,
+    };
+  });
 }
 
 export function getLatestAggregateReport(): AggregateReportRow | undefined {
