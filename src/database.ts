@@ -55,6 +55,14 @@ function initSchema(db: Database.Database) {
       based_on TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS aggregate_reports (
+      id TEXT PRIMARY KEY,
+      analyses_hash TEXT NOT NULL,
+      analyses_count INTEGER NOT NULL,
+      report TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
@@ -171,4 +179,58 @@ export function getContentIdeasByTranscript(transcriptId: string): ContentIdeaRo
 export function listContentIdeas(): ContentIdeaRow[] {
   const db = getDb();
   return db.prepare("SELECT * FROM content_ideas ORDER BY created_at DESC").all() as ContentIdeaRow[];
+}
+
+// ── Aggregate reports ───────────────────────────────────────────────
+
+export interface AggregateReportRow {
+  id: string;
+  analyses_hash: string;
+  analyses_count: number;
+  report: string;
+  created_at: string;
+}
+
+export function listAllAnalyses(): AnalysisRow[] {
+  const db = getDb();
+  return db.prepare("SELECT * FROM analyses ORDER BY created_at DESC").all() as AnalysisRow[];
+}
+
+export function getAnalysisWithTranscript(): { analysis: AnalysisRow; title: string; date: string | null; participants: string | null }[] {
+  const db = getDb();
+  return db.prepare(`
+    SELECT a.*, t.title, t.date, t.participants
+    FROM analyses a
+    JOIN transcripts t ON t.id = a.transcript_id
+    ORDER BY a.created_at DESC
+  `).all() as any[];
+}
+
+export function getLatestAggregateReport(): AggregateReportRow | undefined {
+  const db = getDb();
+  return db.prepare(
+    "SELECT * FROM aggregate_reports ORDER BY created_at DESC LIMIT 1"
+  ).get() as AggregateReportRow | undefined;
+}
+
+export function insertAggregateReport(r: Omit<AggregateReportRow, "created_at">) {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO aggregate_reports (id, analyses_hash, analyses_count, report)
+    VALUES (?, ?, ?, ?)
+  `).run(r.id, r.analyses_hash, r.analyses_count, r.report);
+}
+
+export function getAnalysesHash(): string {
+  const db = getDb();
+  const rows = db.prepare(
+    "SELECT id FROM analyses ORDER BY id"
+  ).all() as { id: string }[];
+  // Simple hash: sorted IDs joined, then hashed via length+content checksum
+  const joined = rows.map((r) => r.id).join(",");
+  let hash = 0;
+  for (let i = 0; i < joined.length; i++) {
+    hash = ((hash << 5) - hash + joined.charCodeAt(i)) | 0;
+  }
+  return `${rows.length}:${hash}`;
 }

@@ -5,8 +5,13 @@ import {
   insertContentIdea,
   getAnalysisByTranscript,
   getContentIdeasByTranscript,
+  getAnalysisWithTranscript,
+  getLatestAggregateReport,
+  insertAggregateReport,
+  getAnalysesHash,
   AnalysisRow,
   ContentIdeaRow,
+  AggregateReportRow,
 } from "./database";
 
 // Use Opus for deep research; override with ANTHROPIC_MODEL in .env (e.g. claude-sonnet-4-20250514 for cheaper)
@@ -177,4 +182,122 @@ export async function analyzeTranscript(
 
   const savedAnalysis = getAnalysisByTranscript(transcriptId)!;
   return { analysis: savedAnalysis, contentIdeas: contentRows };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Aggregate Cross-Call Analysis
+// ═══════════════════════════════════════════════════════════════════
+
+export interface AggregateReport {
+  pipeline_summary: {
+    total_calls: number;
+    hot_leads: number;
+    warm_leads: number;
+    cold_leads: number;
+    avg_lead_score: number;
+  };
+  top_pain_points: { pain_point: string; frequency: number; example_quotes: string[] }[];
+  top_objections: { objection: string; frequency: number; suggested_response: string }[];
+  competitor_landscape: { competitor: string; mentions: number; context: string }[];
+  trending_themes: { theme: string; description: string; relevance: string }[];
+  content_recommendations: { title: string; type: string; description: string; priority: string; based_on_signals: string }[];
+  executive_summary: string;
+  recommendations: string[];
+}
+
+const AGGREGATE_SYSTEM = `You are a senior sales and marketing strategist. You will receive structured data from multiple demo call analyses. Synthesize these into an executive-level cross-call report identifying patterns, trends, and actionable insights. Always respond with valid JSON only, no markdown or extra text.`;
+
+const AGGREGATE_USER_PREFIX = `Analyze the following data from multiple demo calls. Return a JSON object with:
+
+- "pipeline_summary": { "total_calls": number, "hot_leads": number, "warm_leads": number, "cold_leads": number, "avg_lead_score": number }
+- "top_pain_points": Array of { "pain_point": string, "frequency": number (how many calls mentioned it), "example_quotes": string[] }. Ranked by frequency, max 8.
+- "top_objections": Array of { "objection": string, "frequency": number, "suggested_response": string (a recommended way to handle this objection) }. Max 6.
+- "competitor_landscape": Array of { "competitor": string, "mentions": number, "context": string (why prospects bring them up) }. Max 6.
+- "trending_themes": Array of { "theme": string, "description": string, "relevance": string (why this matters for your product/sales strategy) }. Identify 3-5 themes.
+- "content_recommendations": Array of { "title": string, "type": string (Blog Post/Case Study/Whitepaper/Video/Webinar/Comparison Guide), "description": string, "priority": "High"/"Medium"/"Low", "based_on_signals": string }. Top 5-8 ideas ranked by potential impact.
+- "executive_summary": A 3-5 sentence strategic summary of what these calls tell you about your market position, ideal customer profile, and biggest opportunities.
+- "recommendations": Array of 3-5 actionable next-step recommendations for the sales and marketing team.
+
+Be specific — reference actual data patterns. Group similar pain points and objections into canonical themes rather than listing duplicates.
+
+CALL ANALYSES DATA:
+`;
+
+export async function generateAggregateReport(
+  force: boolean = false
+): Promise<{ report: AggregateReport; cached: boolean; analyses_count: number }> {
+  const currentHash = getAnalysesHash();
+  const analysesData = getAnalysisWithTranscript();
+
+  if (analysesData.length === 0) {
+    throw new Error("No analyzed transcripts yet. Analyze at least one transcript first.");
+  }
+
+  // Check cache
+  if (!force) {
+    const existing = getLatestAggregateReport();
+    if (existing && existing.analyses_hash === currentHash) {
+      return {
+        report: JSON.parse(existing.report),
+        cached: true,
+        analyses_count: existing.analyses_count,
+      };
+    }
+  }
+
+  // Build structured input from all analyses
+  const callSummaries = analysesData.map((row, i) => {
+    const a = row.analysis;
+    return {
+      call_number: i + 1,
+      title: row.title,
+      date: row.date,
+      participants: row.participants,
+      lead_score: a.lead_score,
+      lead_qualification: a.lead_qualification,
+      sentiment: a.sentiment,
+      summary: a.summary,
+      pain_points: safeParseJson(a.pain_points),
+      objections: safeParseJson(a.objections),
+      competitors_mentioned: safeParseJson(a.competitors_mentioned),
+      next_steps: safeParseJson(a.next_steps),
+      key_quotes: safeParseJson(a.key_quotes),
+    };
+  });
+
+  const client = getClaude();
+
+  const response = await client.messages.create({
+    model: getModel(),
+    max_tokens: 8192,
+    system: AGGREGATE_SYSTEM,
+    messages: [
+      {
+        role: "user",
+        content: AGGREGATE_USER_PREFIX + JSON.stringify(callSummaries, null, 2),
+      },
+    ],
+    temperature: 0.4,
+  });
+
+  const raw = getTextFromMessage(response);
+  const report: AggregateReport = JSON.parse(
+    raw.trim().replace(/^```json\s*/i, "").replace(/\s*```\s*$/, "") || "{}"
+  );
+
+  // Cache it
+  const id = uuid();
+  insertAggregateReport({
+    id,
+    analyses_hash: currentHash,
+    analyses_count: analysesData.length,
+    report: JSON.stringify(report),
+  });
+
+  return { report, cached: false, analyses_count: analysesData.length };
+}
+
+function safeParseJson(val: string | null): any {
+  if (!val) return [];
+  try { return JSON.parse(val); } catch { return val; }
 }

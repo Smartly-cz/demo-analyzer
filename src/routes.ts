@@ -16,9 +16,11 @@ import {
   getAnalysisByTranscript,
   getContentIdeasByTranscript,
   listContentIdeas,
+  listAllAnalyses,
+  getLatestAggregateReport,
 } from "./database";
 import { parseTranscript } from "./parsers";
-import { analyzeTranscript } from "./analyzer";
+import { analyzeTranscript, generateAggregateReport } from "./analyzer";
 import {
   FathomClient,
   fathomTranscriptToText,
@@ -250,6 +252,89 @@ router.get("/api/transcripts/:id/analysis", (req: Request<IdParams>, res: Respon
 // ── List all content ideas ──────────────────────────────────────────
 router.get("/api/content-ideas", (_req: Request, res: Response) => {
   res.json(listContentIdeas());
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Dashboard — aggregate cross-call analysis
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Quick stats (no AI, pure DB) ────────────────────────────────────
+router.get("/api/dashboard/stats", (_req: Request, res: Response) => {
+  try {
+    const transcripts = listTranscripts();
+    const analyses = listAllAnalyses();
+    const unanalyzed = listUnanalyzedTranscripts();
+
+    // Build stats from individual analyses
+    let hot = 0, warm = 0, cold = 0, totalScore = 0;
+    const painPointCounts: Record<string, number> = {};
+    const objectionCounts: Record<string, number> = {};
+    const competitorCounts: Record<string, number> = {};
+    const sentimentCounts: Record<string, number> = {};
+
+    for (const a of analyses) {
+      const score = a.lead_score || 0;
+      totalScore += score;
+      if (score >= 7) hot++;
+      else if (score >= 4) warm++;
+      else cold++;
+
+      if (a.sentiment) sentimentCounts[a.sentiment] = (sentimentCounts[a.sentiment] || 0) + 1;
+
+      for (const field of [
+        { data: a.pain_points, counts: painPointCounts },
+        { data: a.objections, counts: objectionCounts },
+        { data: a.competitors_mentioned, counts: competitorCounts },
+      ]) {
+        try {
+          const items: string[] = JSON.parse(field.data || "[]");
+          for (const item of items) {
+            field.counts[item] = (field.counts[item] || 0) + 1;
+          }
+        } catch {}
+      }
+    }
+
+    const sortedEntries = (obj: Record<string, number>) =>
+      Object.entries(obj).sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
+
+    res.json({
+      total_transcripts: transcripts.length,
+      analyzed: analyses.length,
+      unanalyzed: unanalyzed.length,
+      pipeline: {
+        hot,
+        warm,
+        cold,
+        avg_score: analyses.length > 0 ? Math.round((totalScore / analyses.length) * 10) / 10 : 0,
+      },
+      top_pain_points: sortedEntries(painPointCounts).slice(0, 10),
+      top_objections: sortedEntries(objectionCounts).slice(0, 8),
+      top_competitors: sortedEntries(competitorCounts).slice(0, 8),
+      sentiment_breakdown: sentimentCounts,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Aggregate AI report (cached, incremental) ──────────────────────
+router.get("/api/dashboard/report", async (_req: Request, res: Response) => {
+  try {
+    const result = await generateAggregateReport(false);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/api/dashboard/report", async (_req: Request, res: Response) => {
+  try {
+    const result = await generateAggregateReport(true);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════
