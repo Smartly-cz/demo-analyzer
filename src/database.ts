@@ -166,6 +166,12 @@ export function deleteTranscript(id: string) {
   db.prepare("DELETE FROM transcripts WHERE id = ?").run(id);
 }
 
+export function deleteAnalysisByTranscript(transcriptId: string) {
+  const db = getDb();
+  db.prepare("DELETE FROM analyses WHERE transcript_id = ?").run(transcriptId);
+  db.prepare("DELETE FROM content_ideas WHERE transcript_id = ?").run(transcriptId);
+}
+
 export function insertAnalysis(a: Omit<AnalysisRow, "created_at">) {
   const db = getDb();
   const stmt = db.prepare(`

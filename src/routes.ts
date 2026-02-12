@@ -175,6 +175,45 @@ router.post("/api/transcripts/analyze-all", async (_req: Request, res: Response)
   }
 });
 
+// ── Re-analyze ALL transcripts (force) ──────────────────────────────
+router.post("/api/transcripts/reanalyze-all", async (_req: Request, res: Response) => {
+  try {
+    const all = listTranscripts();
+    if (all.length === 0) {
+      res.json({ message: "No transcripts to re-analyze", analyzed: 0, failed: 0, results: [] });
+      return;
+    }
+
+    const results: { id: string; title: string; lead_score: number | null; lead_qualification: string | null }[] = [];
+    const failures: { id: string; title: string; error: string }[] = [];
+
+    for (const transcript of all) {
+      try {
+        const result = await analyzeTranscript(transcript.id, transcript.parsed_text, true);
+        results.push({
+          id: transcript.id,
+          title: transcript.title,
+          lead_score: result.analysis.lead_score,
+          lead_qualification: result.analysis.lead_qualification,
+        });
+      } catch (err: any) {
+        failures.push({ id: transcript.id, title: transcript.title, error: err.message });
+      }
+    }
+
+    res.json({
+      message: `Re-analyzed ${results.length} transcript(s)`,
+      analyzed: results.length,
+      failed: failures.length,
+      total: all.length,
+      results,
+      failures: failures.length > 0 ? failures : undefined,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Get single transcript ───────────────────────────────────────────
 router.get("/api/transcripts/:id", (req: Request<IdParams>, res: Response) => {
   const transcript = getTranscript(req.params.id);
@@ -208,7 +247,8 @@ router.post("/api/transcripts/:id/analyze", async (req: Request<IdParams>, res: 
       return;
     }
 
-    const result = await analyzeTranscript(transcript.id, transcript.parsed_text);
+    const force = req.query.force === "true" || req.query.force === "1";
+    const result = await analyzeTranscript(transcript.id, transcript.parsed_text, force);
 
     res.json({
       analysis: parseAnalysisJson(result.analysis),

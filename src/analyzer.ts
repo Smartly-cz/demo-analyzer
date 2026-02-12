@@ -5,6 +5,7 @@ import {
   insertContentIdea,
   getAnalysisByTranscript,
   getContentIdeasByTranscript,
+  deleteAnalysisByTranscript,
   getAnalysisWithTranscript,
   getLatestAggregateReport,
   insertAggregateReport,
@@ -124,13 +125,19 @@ TRANSCRIPT:
 
 export async function analyzeTranscript(
   transcriptId: string,
-  transcriptText: string
+  transcriptText: string,
+  force: boolean = false
 ): Promise<{ analysis: AnalysisRow; contentIdeas: ContentIdeaRow[] }> {
-  // Check for existing analysis
-  const existing = getAnalysisByTranscript(transcriptId);
-  if (existing) {
-    const ideas = getContentIdeasByTranscript(transcriptId);
-    return { analysis: existing, contentIdeas: ideas };
+  // Check for existing analysis (skip if force re-analyze)
+  if (!force) {
+    const existing = getAnalysisByTranscript(transcriptId);
+    if (existing) {
+      const ideas = getContentIdeasByTranscript(transcriptId);
+      return { analysis: existing, contentIdeas: ideas };
+    }
+  } else {
+    // Delete old analysis and content ideas before re-analyzing
+    deleteAnalysisByTranscript(transcriptId);
   }
 
   const client = getClaude();

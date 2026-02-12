@@ -759,7 +759,10 @@
       <div id="transcript-list-view">
         <div id="analyze-all-bar" style="display:none;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;background:var(--surface);padding:14px 20px;border-radius:12px;border:1px solid var(--border)">
           <span id="analyze-all-info" style="font-size:14px;color:var(--text-dim)"></span>
-          <button class="btn btn-primary" id="analyze-all-btn">Analyze All</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-sm" id="reanalyze-all-btn" style="background:var(--surface);border:1px solid var(--border)">Re-analyze All</button>
+            <button class="btn btn-primary" id="analyze-all-btn">Analyze All</button>
+          </div>
         </div>
         <div id="transcript-list" class="transcript-list"></div>
       </div>
@@ -773,6 +776,7 @@
           </div>
           <div class="detail-actions">
             <button class="btn btn-primary" id="analyze-btn">Analyze</button>
+            <button class="btn btn-sm" id="reanalyze-btn" style="display:none;background:var(--surface);border:1px solid var(--border)">Re-analyze</button>
             <button class="btn btn-danger btn-sm" id="delete-btn">Delete</button>
           </div>
         </div>
@@ -983,6 +987,39 @@
       }
     });
 
+    // ── Re-analyze All ─────────────────────────────
+    document.getElementById('reanalyze-all-btn').addEventListener('click', async () => {
+      if (!confirm('Re-analyze ALL transcripts? This will replace existing analyses with fresh results and use AI credits for every transcript.')) return;
+      const btn = document.getElementById('reanalyze-all-btn');
+      const analyzeBtn = document.getElementById('analyze-all-btn');
+      const info = document.getElementById('analyze-all-info');
+      btn.disabled = true;
+      analyzeBtn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Re-analyzing...';
+      info.textContent = 'Re-analyzing all transcripts with latest prompts — this may take a while...';
+
+      try {
+        const res = await fetch('/api/transcripts/reanalyze-all', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        const msg = `Done! Re-analyzed ${data.analyzed} transcript(s)` +
+          (data.failed > 0 ? `, ${data.failed} failed` : '');
+        toast(msg);
+        info.textContent = msg;
+        btn.textContent = 'Re-analyze All';
+        btn.disabled = false;
+        analyzeBtn.disabled = false;
+        loadTranscripts();
+      } catch (err) {
+        toast(err.message, 'error');
+        info.textContent = 'Re-analysis failed: ' + err.message;
+        btn.disabled = false;
+        analyzeBtn.disabled = false;
+        btn.textContent = 'Retry Re-analyze All';
+      }
+    });
+
     // ── Analyze single transcript from list ────────
     async function analyzeOne(id, btnEl) {
       btnEl.disabled = true;
@@ -1018,11 +1055,13 @@
 
         // Check for existing analysis
         document.getElementById('analysis-section').style.display = 'none';
+        document.getElementById('reanalyze-btn').style.display = 'none';
         try {
           const aRes = await fetch('/api/transcripts/' + id + '/analysis');
           if (aRes.ok) {
             const aData = await aRes.json();
             renderAnalysis(aData);
+            document.getElementById('reanalyze-btn').style.display = '';
           }
         } catch {}
 
@@ -1039,26 +1078,36 @@
       currentTranscriptId = null;
     });
 
-    // ── Analyze ───────────────────────────────────
-    document.getElementById('analyze-btn').addEventListener('click', async () => {
+    // ── Analyze / Re-analyze ─────────────────────
+    async function runAnalysis(force) {
       if (!currentTranscriptId) return;
-      const btn = document.getElementById('analyze-btn');
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>Analyzing...';
+      const analyzeBtn = document.getElementById('analyze-btn');
+      const reanalyzeBtn = document.getElementById('reanalyze-btn');
+      const activeBtn = force ? reanalyzeBtn : analyzeBtn;
+      analyzeBtn.disabled = true;
+      reanalyzeBtn.disabled = true;
+      activeBtn.innerHTML = '<span class="spinner"></span>' + (force ? 'Re-analyzing...' : 'Analyzing...');
 
       try {
-        const res = await fetch('/api/transcripts/' + currentTranscriptId + '/analyze', { method: 'POST' });
+        const url = '/api/transcripts/' + currentTranscriptId + '/analyze' + (force ? '?force=true' : '');
+        const res = await fetch(url, { method: 'POST' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
         renderAnalysis(data);
-        toast('Analysis complete');
+        reanalyzeBtn.style.display = '';
+        toast(force ? 'Re-analysis complete' : 'Analysis complete');
       } catch (err) {
         toast(err.message, 'error');
       } finally {
-        btn.disabled = false;
-        btn.textContent = 'Analyze';
+        analyzeBtn.disabled = false;
+        reanalyzeBtn.disabled = false;
+        analyzeBtn.textContent = 'Analyze';
+        reanalyzeBtn.textContent = 'Re-analyze';
       }
-    });
+    }
+
+    document.getElementById('analyze-btn').addEventListener('click', () => runAnalysis(false));
+    document.getElementById('reanalyze-btn').addEventListener('click', () => runAnalysis(true));
 
     function renderAnalysis(data) {
       const section = document.getElementById('analysis-section');
