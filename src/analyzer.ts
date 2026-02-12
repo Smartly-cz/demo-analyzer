@@ -112,9 +112,9 @@ Be specific and reference actual content from the transcript. If a field has no 
 TRANSCRIPT:
 `;
 
-const CONTENT_IDEAS_SYSTEM = `You are a B2B content marketing and personal branding strategist. Based on demo call transcripts, suggest content ideas that would resonate with similar prospects. Include ideas for personal LinkedIn presence (posts and articles) and newsletter content — these are powerful channels for thought leadership and nurturing leads. Always respond with valid JSON only: either a JSON array of 3-5 content ideas, or a single object with an "ideas" or "content_ideas" array. No markdown or extra text.`;
+const CONTENT_IDEAS_SYSTEM = `You are a B2B content marketing and personal branding strategist. Based on demo call transcripts, suggest content ideas that would resonate with similar prospects. Always respond with valid JSON only: either a JSON array of content ideas, or a single object with an "ideas" or "content_ideas" array. No markdown or extra text.`;
 
-const CONTENT_IDEAS_USER_PREFIX = `Return a JSON array of 3-5 content ideas. Each idea should be a JSON object with:
+const CONTENT_IDEAS_USER_PREFIX = `Return a JSON array of 3-5 content ideas based on this call. Each idea should be a JSON object with:
 - "title": A compelling title for the content piece
 - "type": One of "Blog Post", "Case Study", "Whitepaper", "Video", "Webinar", "LinkedIn Post", "LinkedIn Article", "Newsletter", "Email Sequence", "FAQ", "Comparison Guide"
 - "description": 2-3 sentences describing the content and angle
@@ -122,7 +122,7 @@ const CONTENT_IDEAS_USER_PREFIX = `Return a JSON array of 3-5 content ideas. Eac
 - "based_on": What specific part of the conversation inspired this idea
 
 Focus on pain points, objections, and questions that came up. These are real signals from real prospects.
-Always include at least one LinkedIn content idea (Post or Article) and one Newsletter idea. LinkedIn posts should be concise thought-leadership takes; LinkedIn articles should be deeper dives. Newsletter ideas should be value-packed content that nurtures leads over time.
+Be flexible with types — pick whatever format genuinely fits each idea best. If the call naturally inspires two blog posts and no newsletter, that's fine. If it inspires a LinkedIn post and a case study, great. Don't force a type just to have variety — only suggest ideas that actually make sense for the content.
 
 TRANSCRIPT:
 `;
