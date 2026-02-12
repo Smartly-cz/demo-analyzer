@@ -383,6 +383,42 @@
       color: var(--text-dim);
     }
 
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .filter-bar input {
+      flex: 1;
+      min-width: 180px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+    .filter-bar input:focus { border-color: var(--accent); }
+    .filter-chip {
+      padding: 5px 12px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-dim);
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .filter-chip:hover { border-color: var(--accent); color: var(--text); }
+    .filter-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .filter-chip.active:hover { background: var(--accent-hover); }
+    .filter-count { font-size: 12px; color: var(--text-dim); margin-left: auto; white-space: nowrap; }
+
     .transcript-text {
       background: var(--surface);
       border-radius: 12px;
@@ -756,6 +792,11 @@
 
     <!-- Content Ideas Panel -->
     <div class="panel" id="panel-ideas">
+      <div id="ideas-filter-bar" class="filter-bar" style="display:none">
+        <input type="text" id="ideas-search" placeholder="Search ideas..." />
+        <div id="ideas-type-filters" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+        <span class="filter-count" id="ideas-count"></span>
+      </div>
       <div id="all-ideas-list" class="ideas-list"></div>
     </div>
   </div>
@@ -1175,29 +1216,99 @@
     });
 
     // ── All Content Ideas ─────────────────────────
+    let allIdeasData = [];
+    let activeTypeFilters = new Set();
+
     async function loadAllIdeas() {
       const list = document.getElementById('all-ideas-list');
+      const filterBar = document.getElementById('ideas-filter-bar');
       try {
         const res = await fetch('/api/content-ideas');
-        const ideas = await res.json();
+        allIdeasData = await res.json();
 
-        if (ideas.length === 0) {
+        if (allIdeasData.length === 0) {
+          filterBar.style.display = 'none';
           list.innerHTML = '<div class="empty-state"><h3>No content ideas yet</h3><p>Analyze a transcript to generate content ideas</p></div>';
           return;
         }
 
-        list.innerHTML = ideas.map(i => `
-          <div class="idea-card">
-            <div class="idea-type${ideaTypeClass(i.type)}">${esc(i.type)}</div>
-            <h4>${esc(i.title)}</h4>
-            <p>${esc(i.description)}</p>
-            ${i.target_audience ? `<p style="margin-top:6px"><strong>Audience:</strong> ${esc(i.target_audience)}</p>` : ''}
-          </div>
-        `).join('');
+        filterBar.style.display = 'flex';
+        buildTypeFilters();
+        renderFilteredIdeas();
       } catch (err) {
+        filterBar.style.display = 'none';
         list.innerHTML = '<div class="empty-state"><h3>Error</h3><p>' + esc(err.message) + '</p></div>';
       }
     }
+
+    function buildTypeFilters() {
+      const container = document.getElementById('ideas-type-filters');
+      const types = {};
+      for (const idea of allIdeasData) {
+        const t = idea.type || 'Unknown';
+        types[t] = (types[t] || 0) + 1;
+      }
+      const sorted = Object.entries(types).sort((a, b) => b[1] - a[1]);
+      container.innerHTML = sorted.map(([type, count]) => {
+        const active = activeTypeFilters.has(type) ? ' active' : '';
+        return `<button class="filter-chip${active}" data-type="${esc(type)}">${esc(type)} (${count})</button>`;
+      }).join('');
+
+      container.querySelectorAll('.filter-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const type = chip.dataset.type;
+          if (activeTypeFilters.has(type)) {
+            activeTypeFilters.delete(type);
+            chip.classList.remove('active');
+          } else {
+            activeTypeFilters.add(type);
+            chip.classList.add('active');
+          }
+          renderFilteredIdeas();
+        });
+      });
+    }
+
+    function renderFilteredIdeas() {
+      const list = document.getElementById('all-ideas-list');
+      const searchVal = (document.getElementById('ideas-search').value || '').toLowerCase();
+      const countEl = document.getElementById('ideas-count');
+
+      let filtered = allIdeasData;
+
+      if (activeTypeFilters.size > 0) {
+        filtered = filtered.filter(i => activeTypeFilters.has(i.type));
+      }
+
+      if (searchVal) {
+        filtered = filtered.filter(i =>
+          (i.title || '').toLowerCase().includes(searchVal) ||
+          (i.description || '').toLowerCase().includes(searchVal) ||
+          (i.target_audience || '').toLowerCase().includes(searchVal) ||
+          (i.based_on || '').toLowerCase().includes(searchVal)
+        );
+      }
+
+      countEl.textContent = filtered.length === allIdeasData.length
+        ? `${allIdeasData.length} ideas`
+        : `${filtered.length} of ${allIdeasData.length} ideas`;
+
+      if (filtered.length === 0) {
+        list.innerHTML = '<div class="empty-state"><h3>No matching ideas</h3><p>Try adjusting your filters</p></div>';
+        return;
+      }
+
+      list.innerHTML = filtered.map(i => `
+        <div class="idea-card">
+          <div class="idea-type${ideaTypeClass(i.type)}">${esc(i.type)}</div>
+          <h4>${esc(i.title)}</h4>
+          <p>${esc(i.description)}</p>
+          ${i.target_audience ? `<p style="margin-top:6px"><strong>Audience:</strong> ${esc(i.target_audience)}</p>` : ''}
+        </div>
+      `).join('');
+    }
+
+    document.getElementById('ideas-search').addEventListener('input', renderFilteredIdeas);
 
     // ── Helpers ───────────────────────────────────
     function ideaTypeClass(type) {
