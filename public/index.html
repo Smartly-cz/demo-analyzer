@@ -1708,6 +1708,11 @@
     function renderPatterns(report) {
       const content = document.getElementById('patterns-content');
 
+      if (!report) {
+        content.innerHTML = '<div class="empty-state"><h3>No pattern data</h3><p>Click "Generate Patterns" to cluster similar items across your analyzed calls</p></div>';
+        return;
+      }
+
       const sections = [
         { key: 'pain_points', title: 'Pain Points', color: 'var(--accent)' },
         { key: 'objections', title: 'Objections', color: 'var(--orange)' },
