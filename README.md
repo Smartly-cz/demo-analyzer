@@ -16,7 +16,7 @@ Analyze demo call transcripts from **Fathom** or **Granola** to understand leads
 ```bash
 npm install
 cp .env.example .env
-# Edit .env and add your OpenAI API key and Fathom API key
+# Edit .env and add your Anthropic API key and Fathom API key
 
 npm run build
 npm start
@@ -140,5 +140,5 @@ Content-Type: application/json
 
 - Node.js + Express + TypeScript
 - SQLite (better-sqlite3) — zero-config, file-based database
-- OpenAI API (gpt-4o-mini) for analysis
+- Claude API (Anthropic) — default **Claude Opus 4.5** for deep research and analysis; set `ANTHROPIC_MODEL` in `.env` to override (e.g. Sonnet for lower cost)
 - Vanilla HTML/CSS/JS frontend

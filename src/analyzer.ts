@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { v4 as uuid } from "uuid";
 import {
   insertAnalysis,
@@ -9,19 +9,33 @@ import {
   ContentIdeaRow,
 } from "./database";
 
-let openai: OpenAI | null = null;
+// Use Opus for deep research; override with ANTHROPIC_MODEL in .env (e.g. claude-sonnet-4-20250514 for cheaper)
+const DEFAULT_MODEL = "claude-opus-4-5-20251101";
 
-function getOpenAI(): OpenAI {
-  if (!openai) {
-    const apiKey = process.env.OPENAI_API_KEY;
+function getModel(): string {
+  return process.env.ANTHROPIC_MODEL || DEFAULT_MODEL;
+}
+
+let anthropic: Anthropic | null = null;
+
+function getClaude(): Anthropic {
+  if (!anthropic) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new Error(
-        "OPENAI_API_KEY environment variable is required. Set it in .env or your environment."
+        "ANTHROPIC_API_KEY environment variable is required. Set it in .env or your environment."
       );
     }
-    openai = new OpenAI({ apiKey });
+    anthropic = new Anthropic({ apiKey });
   }
-  return openai;
+  return anthropic;
+}
+
+function getTextFromMessage(message: { content: Array<{ type: string; text?: string }> }): string {
+  return message.content
+    .filter((block) => block.type === "text" && "text" in block)
+    .map((b) => (b as { text: string }).text)
+    .join("");
 }
 
 export interface AnalysisResult {
@@ -44,9 +58,9 @@ export interface ContentIdea {
   based_on: string;
 }
 
-const ANALYSIS_PROMPT = `You are an expert sales analyst. Analyze this demo call transcript and provide a structured analysis.
+const ANALYSIS_SYSTEM = `You are an expert sales analyst. Analyze demo call transcripts and provide a structured analysis. Always respond with valid JSON only, no markdown or extra text.`;
 
-Return a JSON object with these fields:
+const ANALYSIS_USER_PREFIX = `Return a JSON object with these fields:
 - "summary": A 2-3 sentence summary of the call
 - "lead_score": Score from 1-10 (10 = very likely to convert)
 - "lead_qualification": One of "Hot", "Warm", "Cold", "Not Qualified" with a brief explanation
@@ -62,9 +76,9 @@ Be specific and reference actual content from the transcript. If a field has no 
 TRANSCRIPT:
 `;
 
-const CONTENT_IDEAS_PROMPT = `You are a B2B content marketing strategist. Based on this demo call transcript, suggest content ideas that would resonate with similar prospects.
+const CONTENT_IDEAS_SYSTEM = `You are a B2B content marketing strategist. Based on demo call transcripts, suggest content ideas that would resonate with similar prospects. Always respond with valid JSON only: either a JSON array of 3-5 content ideas, or a single object with an "ideas" or "content_ideas" array. No markdown or extra text.`;
 
-Return a JSON array of 3-5 content ideas. Each idea should be a JSON object with:
+const CONTENT_IDEAS_USER_PREFIX = `Return a JSON array of 3-5 content ideas. Each idea should be a JSON object with:
 - "title": A compelling title for the content piece
 - "type": One of "Blog Post", "Case Study", "Whitepaper", "Video", "Webinar", "Social Post", "Email Sequence", "FAQ", "Comparison Guide"
 - "description": 2-3 sentences describing the content and angle
@@ -87,37 +101,39 @@ export async function analyzeTranscript(
     return { analysis: existing, contentIdeas: ideas };
   }
 
-  const client = getOpenAI();
+  const client = getClaude();
 
-  // Run analysis and content ideas in parallel
+  // Run analysis and content ideas in parallel (Claude for deep research on calls)
   const [analysisResponse, contentResponse] = await Promise.all([
-    client.chat.completions.create({
-      model: "gpt-4o-mini",
+    client.messages.create({
+      model: getModel(),
+      max_tokens: 4096,
+      system: ANALYSIS_SYSTEM,
       messages: [
         {
           role: "user",
-          content: ANALYSIS_PROMPT + transcriptText,
+          content: ANALYSIS_USER_PREFIX + transcriptText,
         },
       ],
-      response_format: { type: "json_object" },
       temperature: 0.3,
     }),
-    client.chat.completions.create({
-      model: "gpt-4o-mini",
+    client.messages.create({
+      model: getModel(),
+      max_tokens: 4096,
+      system: CONTENT_IDEAS_SYSTEM,
       messages: [
         {
           role: "user",
-          content: CONTENT_IDEAS_PROMPT + transcriptText,
+          content: CONTENT_IDEAS_USER_PREFIX + transcriptText,
         },
       ],
-      response_format: { type: "json_object" },
       temperature: 0.7,
     }),
   ]);
 
-  // Parse analysis
+  const analysisRaw = getTextFromMessage(analysisResponse);
   const analysisData: AnalysisResult = JSON.parse(
-    analysisResponse.choices[0].message.content || "{}"
+    analysisRaw.trim().replace(/^```json\s*/i, "").replace(/\s*```\s*$/, "") || "{}"
   );
 
   const analysisId = uuid();
@@ -125,7 +141,7 @@ export async function analyzeTranscript(
     id: analysisId,
     transcript_id: transcriptId,
     summary: analysisData.summary || null,
-    lead_score: analysisData.lead_score || null,
+    lead_score: analysisData.lead_score ?? null,
     lead_qualification: analysisData.lead_qualification || null,
     pain_points: JSON.stringify(analysisData.pain_points || []),
     objections: JSON.stringify(analysisData.objections || []),
@@ -137,10 +153,9 @@ export async function analyzeTranscript(
   };
   insertAnalysis(analysisRow);
 
-  // Parse content ideas
-  const contentData = JSON.parse(
-    contentResponse.choices[0].message.content || "{}"
-  );
+  const contentRaw = getTextFromMessage(contentResponse);
+  const contentJson = contentRaw.trim().replace(/^```json\s*/i, "").replace(/\s*```\s*$/, "");
+  const contentData = JSON.parse(contentJson || "{}");
   const ideas: ContentIdea[] = Array.isArray(contentData)
     ? contentData
     : contentData.ideas || contentData.content_ideas || [];
