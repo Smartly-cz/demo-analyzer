@@ -910,7 +910,7 @@
     const activeJobs = new Map(); // jobId -> { type, interval, onComplete, label }
 
     function startJobPolling(jobId, opts) {
-      const { type, label, onComplete, onProgress } = opts;
+      const { type, label, onComplete, onProgress, transcriptId } = opts;
       showJobBar(label, 0);
       const interval = setInterval(async () => {
         try {
@@ -939,7 +939,7 @@
         }
       }, 2000);
 
-      activeJobs.set(jobId, { type, interval, onComplete, label });
+      activeJobs.set(jobId, { type, interval, onComplete, label, transcriptId });
     }
 
     function stopJobPolling(jobId) {
@@ -1245,12 +1245,22 @@
         if (!res.ok) throw new Error(data.error);
 
         if (data.job_id) {
-          // Background job — poll for completion
+          // Background job — poll for completion; use ID-based lookup for button
           startJobPolling(data.job_id, {
             type: 'analyze',
+            transcriptId: id,
             label: 'Analyzing transcript',
             onComplete: (result) => {
-              btnEl.outerHTML = '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">analyzed</span>';
+              // Try to update the button by ID (survives DOM references going stale)
+              const btn = document.getElementById('abtn-' + id);
+              if (btn) {
+                btn.outerHTML = '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">analyzed</span>';
+              }
+              // If user is viewing this transcript in detail, render the analysis
+              if (currentTranscriptId === id) {
+                renderAnalysis(result);
+                resetDetailButtons();
+              }
               toast('Analysis complete — score: ' + (result?.analysis?.lead_score || '?') + '/10');
             },
           });
@@ -1281,10 +1291,21 @@
           ((t.participants || []).join(', ') || 'No participants');
         document.getElementById('detail-text').textContent = t.parsed_text || t.raw_text;
 
-        // Check for existing analysis
+        // Always reset button state when entering detail view
+        resetDetailButtons();
         document.getElementById('analysis-section').style.display = 'none';
         document.getElementById('reanalyze-btn').style.display = 'none';
         document.getElementById('delete-analysis-btn').style.display = 'none';
+
+        // Check if there's an active job for this transcript
+        const activeJob = findActiveJobForTranscript(id);
+        if (activeJob) {
+          const analyzeBtn = document.getElementById('analyze-btn');
+          analyzeBtn.disabled = true;
+          analyzeBtn.innerHTML = '<span class="spinner"></span>Analyzing...';
+        }
+
+        // Check for existing analysis
         try {
           const aRes = await fetch('/api/transcripts/' + id + '/analysis');
           if (aRes.ok) {
@@ -1308,6 +1329,24 @@
       currentTranscriptId = null;
     });
 
+    // ── Helper: reset detail view buttons to default state ──
+    function resetDetailButtons() {
+      const analyzeBtn = document.getElementById('analyze-btn');
+      const reanalyzeBtn = document.getElementById('reanalyze-btn');
+      analyzeBtn.disabled = false;
+      analyzeBtn.textContent = 'Analyze';
+      reanalyzeBtn.disabled = false;
+      reanalyzeBtn.textContent = 'Re-analyze';
+    }
+
+    // ── Helper: find active job for a specific transcript ──
+    function findActiveJobForTranscript(transcriptId) {
+      for (const [jobId, entry] of activeJobs) {
+        if (entry.transcriptId === transcriptId) return { jobId, ...entry };
+      }
+      return null;
+    }
+
     // ── Analyze / Re-analyze ─────────────────────
     async function runAnalysis(force) {
       if (!currentTranscriptId) return;
@@ -1329,17 +1368,15 @@
           // Background job — poll for completion
           startJobPolling(data.job_id, {
             type: 'analyze',
+            transcriptId: transcriptId,
             label: force ? 'Re-analyzing transcript' : 'Analyzing transcript',
             onComplete: (result) => {
-              // Only render if still viewing same transcript
+              // If still viewing this transcript, render inline
               if (currentTranscriptId === transcriptId) {
                 renderAnalysis(result);
                 document.getElementById('reanalyze-btn').style.display = '';
                 document.getElementById('delete-analysis-btn').style.display = '';
-                analyzeBtn.disabled = false;
-                reanalyzeBtn.disabled = false;
-                analyzeBtn.textContent = 'Analyze';
-                reanalyzeBtn.textContent = 'Re-analyze';
+                resetDetailButtons();
               }
               toast(force ? 'Re-analysis complete' : 'Analysis complete');
             },
@@ -1349,18 +1386,12 @@
           renderAnalysis(data);
           reanalyzeBtn.style.display = '';
           document.getElementById('delete-analysis-btn').style.display = '';
-          analyzeBtn.disabled = false;
-          reanalyzeBtn.disabled = false;
-          analyzeBtn.textContent = 'Analyze';
-          reanalyzeBtn.textContent = 'Re-analyze';
+          resetDetailButtons();
           toast(force ? 'Re-analysis complete' : 'Analysis complete');
         }
       } catch (err) {
         toast(err.message, 'error');
-        analyzeBtn.disabled = false;
-        reanalyzeBtn.disabled = false;
-        analyzeBtn.textContent = 'Analyze';
-        reanalyzeBtn.textContent = 'Re-analyze';
+        resetDetailButtons();
       }
     }
 
