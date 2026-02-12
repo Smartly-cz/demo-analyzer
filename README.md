@@ -4,6 +4,7 @@ Analyze demo call transcripts from **Fathom** or **Granola** to understand leads
 
 ## Features
 
+- **Fathom integration** — connect to Fathom API to list and import calls directly
 - **Transcript upload** — drag-and-drop file upload or paste text directly
 - **Format detection** — auto-detects Fathom (.txt, .vtt) and Granola (.md) formats
 - **AI-powered analysis** — lead scoring, pain points, objections, competitors, sentiment, key quotes
@@ -15,7 +16,7 @@ Analyze demo call transcripts from **Fathom** or **Granola** to understand leads
 ```bash
 npm install
 cp .env.example .env
-# Edit .env and add your OpenAI API key
+# Edit .env and add your OpenAI API key and Fathom API key
 
 npm run build
 npm start
@@ -90,6 +91,41 @@ GET /api/content-ideas
 
 ```
 DELETE /api/transcripts/:id
+```
+
+## Fathom Integration
+
+Set `FATHOM_API_KEY` in your `.env` file. Get your API key from the Fathom settings page.
+
+### Check connection status
+
+```
+GET /api/fathom/status
+→ { "connected": true }
+```
+
+### List recent calls from Fathom
+
+```
+GET /api/fathom/calls?created_after=2026-01-01T00:00:00Z&per_page=25&cursor=...
+```
+
+### Import a single Fathom call
+
+```
+POST /api/fathom/import/:recordingId
+```
+
+### Bulk import all calls
+
+```
+POST /api/fathom/import-all
+Content-Type: application/json
+
+{
+  "created_after": "2026-01-01T00:00:00Z",  // optional
+  "created_before": "2026-02-01T00:00:00Z"  // optional
+}
 ```
 
 ## Supported Formats

@@ -447,6 +447,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="transcripts">Transcripts</button>
       <button class="tab" data-tab="upload">Upload / Import</button>
+      <button class="tab" data-tab="fathom">Fathom</button>
       <button class="tab" data-tab="ideas">Content Ideas</button>
     </div>
 
@@ -478,6 +479,29 @@
         </div>
         <button class="btn btn-primary" id="import-btn">Import Transcript</button>
       </div>
+    </div>
+
+    <!-- Fathom Panel -->
+    <div class="panel" id="panel-fathom">
+      <div class="import-section" style="margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3>Fathom Integration</h3>
+          <div id="fathom-status" style="font-size:13px;color:var(--text-dim)">Checking connection...</div>
+        </div>
+        <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
+          Connect to your Fathom account to import demo call transcripts directly. Set your <code>FATHOM_API_KEY</code> in the <code>.env</code> file.
+        </p>
+        <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+          <div class="form-group" style="margin-bottom:0;flex:1;min-width:200px">
+            <label for="fathom-after">Calls after (optional)</label>
+            <input type="text" id="fathom-after" placeholder="e.g. 2026-01-01">
+          </div>
+          <button class="btn btn-primary" id="fathom-load-btn">Load Calls</button>
+          <button class="btn btn-primary" id="fathom-import-all-btn" style="background:var(--green);color:#000">Import All</button>
+        </div>
+      </div>
+
+      <div id="fathom-calls-list" class="transcript-list"></div>
     </div>
 
     <!-- Transcripts Panel -->
@@ -531,6 +555,7 @@
         document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
 
         if (tab.dataset.tab === 'transcripts') loadTranscripts();
+        if (tab.dataset.tab === 'fathom') checkFathomStatus();
         if (tab.dataset.tab === 'ideas') loadAllIdeas();
       });
     });
@@ -819,6 +844,119 @@
       d.textContent = String(s);
       return d.innerHTML;
     }
+
+    // ── Fathom Integration ──────────────────────────
+    async function checkFathomStatus() {
+      const el = document.getElementById('fathom-status');
+      try {
+        const res = await fetch('/api/fathom/status');
+        const data = await res.json();
+        if (data.connected) {
+          el.innerHTML = '<span style="color:var(--green)">Connected</span>';
+        } else {
+          el.innerHTML = '<span style="color:var(--red)">Not connected</span>' +
+            (data.error ? ' &mdash; ' + esc(data.error) : '');
+        }
+      } catch {
+        el.innerHTML = '<span style="color:var(--red)">Error checking status</span>';
+      }
+    }
+
+    document.getElementById('fathom-load-btn').addEventListener('click', loadFathomCalls);
+
+    let fathomNextCursor = null;
+
+    async function loadFathomCalls() {
+      const list = document.getElementById('fathom-calls-list');
+      const btn = document.getElementById('fathom-load-btn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Loading...';
+
+      try {
+        const after = document.getElementById('fathom-after').value.trim();
+        let url = '/api/fathom/calls?per_page=25';
+        if (after) url += '&created_after=' + encodeURIComponent(after.includes('T') ? after : after + 'T00:00:00Z');
+        if (fathomNextCursor) url += '&cursor=' + encodeURIComponent(fathomNextCursor);
+
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        fathomNextCursor = data.next_cursor;
+
+        if (data.calls.length === 0) {
+          list.innerHTML = '<div class="empty-state"><h3>No calls found</h3><p>Try adjusting the date filter or check your Fathom API key</p></div>';
+          return;
+        }
+
+        list.innerHTML = data.calls.map(c => `
+          <div class="transcript-card" style="cursor:default">
+            <div class="card-header">
+              <h3>${esc(c.title)}</h3>
+              <button class="btn btn-primary btn-sm" onclick="importFathomCall(${c.recording_id}, this)">Import</button>
+            </div>
+            <div class="card-meta">
+              ${new Date(c.created_at).toLocaleString()}
+              &middot; ${(c.participants || []).join(', ') || 'No participants'}
+            </div>
+          </div>
+        `).join('') + (fathomNextCursor ? '<div style="text-align:center;margin-top:16px"><button class="btn btn-primary btn-sm" onclick="loadMoreFathomCalls()">Load More</button></div>' : '');
+      } catch (err) {
+        toast(err.message, 'error');
+        list.innerHTML = '<div class="empty-state"><h3>Error</h3><p>' + esc(err.message) + '</p></div>';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Load Calls';
+      }
+    }
+
+    function loadMoreFathomCalls() {
+      loadFathomCalls();
+    }
+
+    async function importFathomCall(recordingId, btnEl) {
+      btnEl.disabled = true;
+      btnEl.innerHTML = '<span class="spinner"></span>';
+      try {
+        const res = await fetch('/api/fathom/import/' + recordingId, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        btnEl.textContent = 'Imported';
+        btnEl.style.background = 'var(--green)';
+        btnEl.style.color = '#000';
+        toast('Imported: ' + data.title);
+      } catch (err) {
+        btnEl.textContent = 'Failed';
+        btnEl.style.background = 'var(--red)';
+        toast(err.message, 'error');
+      }
+    }
+
+    document.getElementById('fathom-import-all-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('fathom-import-all-btn');
+      if (!confirm('Import all Fathom calls? This may take a while.')) return;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Importing...';
+      try {
+        const after = document.getElementById('fathom-after').value.trim();
+        const body = {};
+        if (after) body.created_after = after.includes('T') ? after : after + 'T00:00:00Z';
+
+        const res = await fetch('/api/fathom/import-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        toast(`Imported ${data.imported_count} calls` + (data.skipped_count ? `, skipped ${data.skipped_count}` : ''));
+      } catch (err) {
+        toast(err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Import All';
+      }
+    });
 
     // Initial load
     loadTranscripts();
