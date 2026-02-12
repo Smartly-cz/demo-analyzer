@@ -1679,11 +1679,8 @@
       try {
         const method = force ? 'POST' : 'GET';
         const res = await fetch('/api/dashboard/patterns', { method });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error);
-        }
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to load patterns');
 
         if (data.cached !== undefined) {
           status.textContent = data.cached ? `Cached (${data.analyses_count} calls)` : `Fresh (${data.analyses_count} calls)`;
